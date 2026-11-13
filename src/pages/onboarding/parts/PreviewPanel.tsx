@@ -9,7 +9,7 @@ import { CATEGORY_COLOR, MOCHI } from '@/lib/colors'
 import { known, t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import { textLength, type Draft } from '../model'
-import { LAST_STEP, TEMPLATE_BY_ID } from '../options'
+import { TEMPLATE_BY_ID } from '../options'
 import { SignalBars } from './Signal'
 import { StageBox } from './StageBox'
 
@@ -17,13 +17,14 @@ interface PreviewPanelProps {
   draft: Draft
   expression: MochiExpression
   pulse: number
-  step: number
+  /** onboarding finished: the badge says ready instead of searching */
+  done: boolean
   province: string
 }
 
 /** Desktop left column: the live 3D mochi + a profile card that fills in as you go. */
-export function PreviewPanel({ draft, expression, pulse, step, province }: PreviewPanelProps) {
-  const connected = step === LAST_STEP
+export function PreviewPanel({ draft, expression, pulse, done, province }: PreviewPanelProps) {
+  const connected = done
   return (
     <div className="relative flex flex-col gap-3 rounded-[2.5rem] border-2 border-white/80 p-4 xl:p-5">
       <Sparkle className="absolute -top-3 right-10 text-butter" size={22} fill="currentColor" strokeWidth={0} aria-hidden />
@@ -33,7 +34,7 @@ export function PreviewPanel({ draft, expression, pulse, step, province }: Previ
         <span className="glass inline-flex h-9 items-center gap-2 rounded-full px-3.5 text-xs font-semibold text-ink">
           <MessageCircleHeart size={14} aria-hidden />
           {connected ? t('พร้อมทักเพื่อนแล้ว', 'Ready to say hi') : t('กำลังหาเพื่อนคลื่นเดียวกัน…', 'Finding friends on your wavelength…')}
-          <SignalBars ringing={!connected} />
+          <SignalBars tuning={!connected} />
         </span>
         <span className="text-xs font-semibold text-ink-soft">{t('ตัวอย่างโปรไฟล์', 'Profile preview')}</span>
       </div>

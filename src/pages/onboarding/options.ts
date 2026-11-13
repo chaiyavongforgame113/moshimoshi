@@ -22,24 +22,27 @@ import type { MochiAccessory, MochiExpression } from '@/components/three'
 import { tagOf } from '@/data/tags'
 import { L, loc, t } from '@/lib/i18n'
 import type { IntentTemplate, MochiColor, OnlineSlot } from '@/lib/types'
-import { MIN_TAGS, STORY_MIN, textLength, type Draft } from './model'
+import { MAX_LOVES, MAX_STYLES, MIN_TAGS, STORY_MIN, textLength, type Draft, type ScreenKey } from './model'
 
-export interface StepInfo {
-  key: 'hello' | 'mochi' | 'likes' | 'story' | 'looking' | 'rooms' | 'done'
-  label: string
-}
+type ScreenLabel = { key: ScreenKey; label: string }
 
-export const STEPS: StepInfo[] = [
-  loc<StepInfo>({ key: 'hello', label: L('ทักทาย', 'Say hi') }),
-  loc<StepInfo>({ key: 'mochi', label: L('เลือกโมชิ', 'Pick your Mochi') }),
-  loc<StepInfo>({ key: 'likes', label: L('เรื่องที่ชอบ', 'Interests') }),
-  loc<StepInfo>({ key: 'story', label: L('เล่าให้ฟัง', 'About you') }),
-  loc<StepInfo>({ key: 'looking', label: L('อยากหาเพื่อนแบบไหน', 'Looking for') }),
-  loc<StepInfo>({ key: 'rooms', label: L('เลือกห้อง', 'Pick rooms') }),
-  loc<StepInfo>({ key: 'done', label: L('พร้อมแล้ว', 'All set') }),
+const SCREEN_LABELS: ScreenLabel[] = [
+  loc<ScreenLabel>({ key: 'name', label: L('ชื่อเล่น', 'Nickname') }),
+  loc<ScreenLabel>({ key: 'rules', label: L('กติกาเบาๆ', 'Soft rules') }),
+  loc<ScreenLabel>({ key: 'mochi', label: L('แต่งน้องโมชิ', 'Your Mochi') }),
+  loc<ScreenLabel>({ key: 'likes', label: L('เรื่องที่ชอบ', 'Interests') }),
+  loc<ScreenLabel>({ key: 'loves', label: L('เรื่องที่รักมาก', 'Favorites') }),
+  loc<ScreenLabel>({ key: 'intent', label: L('มาที่นี่เพื่อ…', 'Here for…') }),
+  loc<ScreenLabel>({ key: 'topic', label: L('อยากคุยเรื่องไหน', 'Topic') }),
+  loc<ScreenLabel>({ key: 'online', label: L('ออนไลน์ช่วงไหน', 'Online times') }),
+  loc<ScreenLabel>({ key: 'style', label: L('สไตล์การคุย', 'Chat style') }),
+  loc<ScreenLabel>({ key: 'story', label: L('เรื่องเล่า', 'A little story') }),
+  loc<ScreenLabel>({ key: 'rooms', label: L('ห้องที่น่าจะชอบ', 'Rooms') }),
+  loc<ScreenLabel>({ key: 'done', label: L('พร้อมแล้ว', 'All set') }),
 ]
 
-export const LAST_STEP = STEPS.length - 1
+/** The short name of a screen for the header (follows the current language). */
+export const screenLabel = (key: ScreenKey) => SCREEN_LABELS.find((s) => s.key === key)?.label ?? ''
 
 /** id → label, read from the options on every access (so it follows the current language). */
 function labelsOf<K extends string>(options: { id: K; label: string }[]): Readonly<Record<K, string>> {
@@ -77,7 +80,7 @@ type AccessoryOption = { id: MochiAccessory; label: string; Icon: LucideIcon }
 
 export const ACCESSORY_OPTIONS: AccessoryOption[] = [
   loc<AccessoryOption>({ id: 'none', label: L('ตัวเปล่า', 'None'), Icon: Ban }),
-  loc<AccessoryOption>({ id: 'headset', label: L('หูฟัง', 'Headphones'), Icon: Headphones }),
+  loc<AccessoryOption>({ id: 'headset', label: L('หูฟัง', 'Headset'), Icon: Headphones }),
   loc<AccessoryOption>({ id: 'leaf', label: L('ใบไม้', 'Leaf'), Icon: Leaf }),
   loc<AccessoryOption>({ id: 'bow', label: L('โบว์', 'Bow'), Icon: Ribbon }),
   loc<AccessoryOption>({ id: 'cap', label: L('หมวก', 'Cap'), Icon: GraduationCap }),
@@ -182,94 +185,125 @@ export interface MascotLine {
   face: MochiExpression
 }
 
-/** The question for each step (also the page heading). */
-export function mascotLine(step: number, d: Draft): MascotLine {
+/** The question for each screen (also the page heading). */
+export function mascotLine(screen: ScreenKey, d: Draft): MascotLine {
   const name = d.name.trim()
-  switch (step) {
-    case 0:
+  switch (screen) {
+    case 'name':
       return {
-        line: t('สวัสดี! เราชื่อน้องโมชิ แล้วเธอล่ะ?', "Hi! I'm little Mochi. What's your name?"),
+        line: t('สวัสดี! เราชื่อน้องโมชิ แล้วเธอล่ะ?', "Hi! I'm Little Mochi. What's your name?"),
         sub: t('ชื่อเล่นก็พอนะ เปลี่ยนทีหลังได้เสมอ', 'A nickname is perfect. You can always change it later'),
         face: 'smile',
       }
-    case 1:
+    case 'rules':
       return {
-        line: name
-          ? t(`${name} มาเลือกโมชิที่เป็นตัวเธอกัน`, `${name}, let's pick a Mochi that's totally you`)
-          : t('มาเลือกโมชิที่เป็นตัวเธอกัน', "Let's pick a Mochi that's totally you"),
-        sub: t('สี หน้าตา ของแต่งตัว เปลี่ยนได้ตลอดเลย', 'Color, face, accessories. Change them anytime'),
-        face: 'wow',
-      }
-    case 2:
-      return {
-        line: t('ช่วงนี้ชอบอะไรอยู่บ้าง?', 'What are you into lately?'),
-        sub: t(
-          'เลือกอย่างน้อย 3 อย่าง ยิ่งเฉพาะ ยิ่งเจอคนใช่ (#Frieren ดีกว่า #อนิเมะ)',
-          'Pick at least 3. The more specific, the better the match (#Frieren beats #Anime)',
-        ),
-        face: 'happy',
-      }
-    case 3:
-      return {
-        line: t('เล่าเรื่องตัวเองให้ฟังหน่อยสิ', 'Tell me a little about yourself'),
-        sub: t('สั้นๆ ก็ได้ เราตั้งใจฟังอยู่นะ', "Short is fine. I'm all ears"),
-        face: 'smile',
-      }
-    case 4:
-      return {
-        line: t('อยากหาเพื่อนแบบไหนบ้าง?', 'What kind of friends are you looking for?'),
-        sub: t('ไม่ตอบก็ได้นะ ไว้ค่อยบอกทีหลังก็ได้', 'No need to answer now. You can tell me later'),
+        line: name ? t(`${name} ก่อนเริ่ม ตกลงกันเบาๆ 3 ข้อนะ`, `${name}, 3 soft rules before we start`) : t('ก่อนเริ่ม ตกลงกันเบาๆ 3 ข้อนะ', '3 soft rules before we start'),
+        sub: t('ที่นี่อบอุ่นได้ เพราะทุกคนช่วยกันแบบนี้', 'This place stays cozy because everyone does this'),
         face: 'wink',
       }
-    case 5:
+    case 'mochi':
+      return {
+        // no name here: it's on the mochi's name tag, and the line has to stay one row on phones
+        line: t('มาแต่งน้องโมชิของเรากัน', "Let's style your Mochi"),
+        sub: t('สี หน้าตา ของแต่ง เปลี่ยนได้ตลอดเลย', 'Color, face, accessory. Change them anytime'),
+        face: 'wow',
+      }
+    case 'likes':
+      return {
+        line: t('ช่วงนี้ชอบอะไรอยู่บ้าง?', 'What are you into lately?'),
+        sub: t(`เลือกอย่างน้อย ${MIN_TAGS} อย่าง ยิ่งเฉพาะ ยิ่งเจอคนใช่`, `Pick at least ${MIN_TAGS}. The more specific, the better the match`),
+        face: 'happy',
+      }
+    case 'loves':
+      return {
+        line: t('อันไหนที่รักที่สุด?', 'Which ones do you love most?'),
+        sub: t(`ติดดาวได้ ${MAX_LOVES} อย่าง จะได้เจอคนคอเดียวกันง่ายขึ้น`, `Star up to ${MAX_LOVES}. It helps me find your kindred spirits`),
+        face: 'happy',
+      }
+    case 'intent':
+      return {
+        line: t('มาที่นี่เพื่ออะไร?', 'What brings you here?'),
+        sub: t('เลือก 1 อย่าง เปลี่ยนทีหลังได้', 'Pick one. You can change it later'),
+        face: 'wink',
+      }
+    case 'topic':
+      return {
+        line: t('อยากคุยเรื่องไหนเป็นพิเศษ?', 'What do you most want to talk about?'),
+        sub: t('เลือกจากเรื่องที่ชอบมา 1 เรื่อง', 'Pick one of your interests'),
+        face: 'talk',
+      }
+    case 'online':
+      return {
+        line: t('ปกติออนไลน์ช่วงไหน?', 'When are you usually online?'),
+        sub: t('เลือกได้หลายช่วง จะได้เจอเพื่อนที่ว่างตรงกัน', 'Pick as many as you like, to meet people who are around too'),
+        face: 'smile',
+      }
+    case 'style':
+      return {
+        line: t('คุยแบบไหนเป็นตัวเรา?', "What's your chat style?"),
+        sub: t(`เลือกได้ไม่เกิน ${MAX_STYLES} แบบ`, `Pick up to ${MAX_STYLES}`),
+        face: 'talk',
+      }
+    case 'story':
+      return {
+        line: t('เล่าเรื่องตัวเองให้ฟังสักข้อสิ', 'Tell me one little thing about you'),
+        sub: t('ข้อเดียวพอ อยากเล่าเพิ่มไปเติมในโปรไฟล์ได้', 'One is plenty. You can add more on your profile'),
+        face: 'smile',
+      }
+    case 'rooms':
       return {
         line: t('เราเลือกห้องที่น่าจะถูกใจไว้ให้แล้ว', 'I picked some rooms you might like'),
-        sub: t('แตะเพื่อเลือกหรือเอาออก เข้าออกห้องได้ตลอด', 'Tap to add or remove. Join or leave rooms anytime'),
+        sub: t('ดูแล้วกดยืนยันได้เลย เข้าออกห้องได้ตลอด', 'Have a look, then confirm. Join or leave rooms anytime'),
         face: 'happy',
       }
     default:
       return {
         line: name ? t(`เย้! ยินดีต้อนรับนะ ${name}`, `Yay! Welcome, ${name}`) : t('เย้! ยินดีต้อนรับนะ', 'Yay! Welcome aboard'),
-        sub: t('สายเชื่อมต่อแล้ว คืนนี้มีเพื่อนรออยู่', "You're connected. Friends are waiting tonight"),
+        sub: t('โมชิจูนคลื่นหาเพื่อนให้แล้ว', "I've tuned in to find your people"),
         face: 'happy',
       }
   }
 }
 
 /** A follow-up chat bubble that reacts to what the visitor just did. */
-export function mascotReaction(step: number, d: Draft, ctx: { settledName: string; settledStory: string; lookChanged: boolean }): string | null {
-  switch (step) {
-    case 0: {
+export function mascotReaction(screen: ScreenKey, d: Draft, ctx: { settledName: string; settledStory: string; lookChanged: boolean }): string | null {
+  switch (screen) {
+    case 'name': {
       const n = ctx.settledName.trim()
       return n ? t(`ชื่อ ${n} น่ารักจังเลย ยินดีที่ได้รู้จักนะ`, `${n} is such a cute name! Nice to meet you`) : null
     }
-    case 1:
+    case 'mochi':
       if (!ctx.lookChanged) return null
       return t(
         `โมชิสี${COLOR_LABEL[d.color]}${d.accessory !== 'none' ? `กับ${ACCESSORY_LABEL[d.accessory]}` : ''} น่ากอดสุดๆ`,
         `${COLOR_LABEL[d.color]} Mochi${d.accessory !== 'none' ? ` + ${ACCESSORY_LABEL[d.accessory].toLowerCase()}` : ''}, so huggable!`,
       )
-    case 2: {
+    case 'likes': {
       const n = d.tags.length
       if (!n) return null
       if (n < MIN_TAGS) return t(`อีก ${MIN_TAGS - n} อย่างก็ครบแล้ว สู้ๆ`, `Just ${MIN_TAGS - n} more. You've got this!`)
-      if (!d.loves.length)
-        return t(
-          'เยี่ยมเลย! แตะค้างที่แท็ก หรือกดดาวในกล่อง เพื่อบอกว่าอันไหน "รักมาก" นะ',
-          'Nice! Press and hold a tag, or tap a star in the box, to mark your "Love it" picks',
-        )
-      const fav = tagOf(d.loves[d.loves.length - 1])
+      return t('ครบแล้ว! เลือกเพิ่มได้อีกนะ ยิ่งเยอะยิ่งเจอคนใช่', "That's enough! Add more if you like. More picks, better matches")
+    }
+    case 'loves': {
+      const fav = d.loves.length ? tagOf(d.loves[d.loves.length - 1]) : undefined
       return fav ? t(`${fav.label} ด้วยเหรอ! เราก็ชอบเหมือนกัน`, `${fav.label} too?! I love that one!`) : null
     }
-    case 3: {
+    case 'intent':
+      return d.intent ? TEMPLATE_BY_ID[d.intent].reaction : null
+    case 'topic': {
+      const topic = d.intentTag ? tagOf(d.intentTag) : undefined
+      return topic ? t(`${topic.label} เหรอ คุยกันได้ยาวๆ เลย!`, `${topic.label}? We could talk for hours!`) : null
+    }
+    case 'online':
+      return d.online.length ? t('จดไว้แล้ว เดี๋ยวหาเพื่อนที่ว่างตรงกันให้นะ', "Noted! I'll find friends who are around when you are") : null
+    case 'style':
+      return d.chatStyle.length ? t('สไตล์นี้คุยด้วยสนุกแน่เลย!', 'Sounds like fun to chat with!') : null
+    case 'story': {
       const n = textLength(ctx.settledStory)
       if (!n) return null
       return n < STORY_MIN ? t('ค่อยๆ พิมพ์ได้เลย ไม่ต้องรีบนะ', 'Take your time, no rush') : t('อ่านแล้วอยากคุยด้วยเลย!', 'Reading that makes me want to chat!')
     }
-    case 4:
-      if (d.intent) return TEMPLATE_BY_ID[d.intent].reaction
-      return d.online.length || d.chatStyle.length ? t('จดไว้แล้ว เดี๋ยวหาเพื่อนที่จังหวะเดียวกันให้นะ', "Noted! I'll find friends who match your rhythm") : null
-    case 5:
+    case 'rooms':
       if (!d.rooms.length) return null
       return d.rooms.includes('lobby')
         ? t('ห้องนั่งเล่นเปิดไฟรอแล้ว แวะไปทักทายได้เลยนะ', 'The Lounge lights are on. Drop by and say hi!')

@@ -107,6 +107,8 @@ const LABELS: Record<string, string> = {
   'แชทนี้ปิดแล้ว ไม่เป็นไรนะ ยังมีเพื่อนอีกหลายคนในห้องให้ทักทาย': "This chat is closed. That's okay, there are lots more friends in the rooms to say hi to",
   '[ข้อความนี้ถูกลบโดยทีมงาน]': '[This message was removed by the team]',
   แชทส่วนตัว: 'Private chat',
+  // intents.when_label for "ตอนนี้เลย" (saved as when 'tonight'; pages/post NOW_LABEL)
+  ตอนนี้เลย: 'Right now',
 }
 
 /** reports.reason values (SafetyMenu REPORT_REASONS, the chat photo REASONS in ImageSheets, room line reports) */

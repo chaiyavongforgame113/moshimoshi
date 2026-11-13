@@ -1,7 +1,7 @@
 import { motion, useIsPresent } from 'motion/react'
 import { Check, Eye, LockKeyhole, LockKeyholeOpen, MessageCircleHeart, RotateCcw, ShieldCheck } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
-import { Avatar, Button, Sheet } from '@/components/ui'
+import { Avatar, Button, Sheet, ShowMore } from '@/components/ui'
 import { useBlockedPeople, type BlockedPerson } from '@/data/blocked'
 import { bangkokYear, dayOffset } from '@/data/live/time'
 import { dateLocale, displayName, t } from '@/lib/i18n'
@@ -17,6 +17,9 @@ type Step =
   /** index: where they were in the list, so the focus can come back near there */
   | { kind: 'ask'; person: BlockedPerson; index: number }
   | { kind: 'done'; person: BlockedPerson; index: number }
+
+/** the list shows this many, then "ดูเพิ่ม" */
+const FIRST = 3
 
 const nameOf = (p: BlockedPerson) => displayName(p.name?.trim() || 'เพื่อนใหม่')
 
@@ -53,6 +56,8 @@ function BlockedBody({ onClose }: { onClose: () => void }) {
   const blocked = useMoshi((s) => s.blocked)
   const unblockUser = useMoshi((s) => s.unblockUser)
   const [step, setStep] = useState<Step>({ kind: 'list' })
+  // the list starts short, but coming back from a question it opens far enough to show where they were
+  const [listFirst, setListFirst] = useState(FIRST)
   // unblocked from here: off the list at once (the server's list can lag a moment),
   // and back on it if the unblock didn't go through (the store puts the id back)
   const [unblocked, setUnblocked] = useState<string[]>([])
@@ -92,7 +97,10 @@ function BlockedBody({ onClose }: { onClose: () => void }) {
     lastTap.current = performance.now()
     go({ kind: 'ask', person, index }, () => keep.current?.focus())
   }
-  const cancel = (person: BlockedPerson) => go({ kind: 'list' }, () => (rowButtons.current.get(person.id) ?? dialogOf(root.current))?.focus())
+  const cancel = (person: BlockedPerson, index: number) => {
+    setListFirst(Math.max(FIRST, index + 1))
+    go({ kind: 'list' }, () => (rowButtons.current.get(person.id) ?? dialogOf(root.current))?.focus())
+  }
   const confirm = (person: BlockedPerson, index: number) => {
     if (tooSoon()) return
     setUnblocked((list) => (list.includes(person.id) ? list : [...list, person.id]))
@@ -102,7 +110,9 @@ function BlockedBody({ onClose }: { onClose: () => void }) {
   // back to the list: the focus goes to whoever took their place (or the empty state)
   const backToList = (index: number) => {
     if (tooSoon()) return
-    const next = shown && shown.length ? shown[Math.min(index, shown.length - 1)] : undefined
+    const at = shown && shown.length ? Math.min(index, shown.length - 1) : -1
+    const next = at >= 0 && shown ? shown[at] : undefined
+    setListFirst(Math.max(FIRST, at + 1))
     go({ kind: 'list' }, () => ((next && rowButtons.current.get(next.id)) ?? emptyTitle.current ?? dialogOf(root.current))?.focus())
   }
   const retryUnblock = (person: BlockedPerson) => {
@@ -134,7 +144,7 @@ function BlockedBody({ onClose }: { onClose: () => void }) {
         {status}
       </p>
       {step.kind === 'ask' ? (
-        <Ask person={step.person} ids={ids} keepRef={keep} onConfirm={() => confirm(step.person, step.index)} onCancel={() => cancel(step.person)} />
+        <Ask person={step.person} ids={ids} keepRef={keep} onConfirm={() => confirm(step.person, step.index)} onCancel={() => cancel(step.person, step.index)} />
       ) : step.kind === 'done' ? (
         <Done
           person={step.person}
@@ -158,14 +168,19 @@ function BlockedBody({ onClose }: { onClose: () => void }) {
           <p className="flex items-start gap-2.5 rounded-2xl bg-lavender/25 p-3 text-sm text-ink">
             <ShieldCheck size={18} className="mt-0.5 shrink-0" aria-hidden />
             {t(
-              'คนในรายชื่อนี้มองไม่เห็นโปรไฟล์และโพสต์ของเรา และทักแชทหาเราไม่ได้ โดยไม่มีการแจ้งเตือนให้เขารู้',
-              "People here can't see your profile or posts and can't message you. They're never notified",
+              'คนในรายชื่อนี้มองไม่เห็นโปรไฟล์และชวนเล่นของเรา และทักแชทหาเราไม่ได้ โดยไม่มีการแจ้งเตือนให้เขารู้',
+              "People here can't see your profile or invites and can't message you. They're never notified",
             )}
           </p>
-          <ul aria-label={t('คนที่บล็อกไว้', 'Blocked people')} className="space-y-2.5">
-            {shown.map((p, i) => (
+          <ShowMore
+            items={shown}
+            initial={listFirst}
+            step={FIRST}
+            getKey={(p) => p.id}
+            listClassName="space-y-2.5"
+            itemClassName="flex flex-wrap items-center gap-3 rounded-3xl bg-white p-3"
+            render={(p, i) => (
               <PersonRow
-                key={p.id}
                 person={p}
                 buttonRef={(el) => {
                   if (el) rowButtons.current.set(p.id, el)
@@ -173,8 +188,8 @@ function BlockedBody({ onClose }: { onClose: () => void }) {
                 }}
                 onUnblock={() => ask(p, i)}
               />
-            ))}
-          </ul>
+            )}
+          />
           {error && <Stale onRetry={retryLoad} />}
         </motion.div>
       )}
@@ -186,8 +201,9 @@ function PersonRow({ person, buttonRef, onUnblock }: { person: BlockedPerson; bu
   const name = nameOf(person)
   const when = blockedWhen(person.blockedAt)
   // the name takes the spare room; on the narrowest phones the button drops to its own full-width line
+  // (ShowMore draws the row's <li> around this)
   return (
-    <li className="flex flex-wrap items-center gap-3 rounded-3xl bg-white p-3">
+    <>
       <Avatar color={person.color} size={44} face={person.face ?? 'smile'} />
       <span className="min-w-0 flex-[100_1_7rem]">
         <span className="block truncate font-display font-semibold text-ink">{name}</span>
@@ -196,7 +212,7 @@ function PersonRow({ person, buttonRef, onUnblock }: { person: BlockedPerson; bu
       <Button ref={buttonRef} variant="soft" className="flex-[1_0_auto]" aria-label={t(`ปลดบล็อก${name}`, `Unblock ${name}`)} onClick={onUnblock}>
         {t('ปลดบล็อก', 'Unblock')}
       </Button>
-    </li>
+    </>
   )
 }
 
@@ -237,7 +253,7 @@ function Ask({
         </div>
         <ul id={whatId} className="space-y-3 rounded-3xl bg-white p-4">
           <Point icon={<Eye size={17} aria-hidden />} tint="bg-sky/45">
-            {t(`${name}จะกลับมาเห็นโปรไฟล์และโพสต์ของเราได้ และเราก็จะเห็นของเขาด้วย`, `${name} will see your profile and posts again, and you'll see theirs`)}
+            {t(`${name}จะกลับมาเห็นโปรไฟล์และชวนเล่นของเราได้ และเราก็จะเห็นของเขาด้วย`, `${name} will see your profile and invites again, and you'll see theirs`)}
           </Point>
           <Point icon={<MessageCircleHeart size={17} aria-hidden />} tint="bg-peach/50">
             {t(
@@ -305,7 +321,7 @@ function Done({
         <p className="max-w-sm text-ink-soft">
           {failed
             ? t('สัญญาณอาจสะดุดนิดหน่อย ลองอีกครั้งนะ', 'The connection may have hiccuped. Give it another go')
-            : t('ตอนนี้เห็นโปรไฟล์และโพสต์ของกันได้อีกครั้ง ถ้าวันไหนไม่สบายใจ บล็อกใหม่ได้เสมอนะ', "You can see each other's profiles and posts again. If anything ever feels off, you can always block again")}
+            : t('ตอนนี้เห็นโปรไฟล์และชวนเล่นของกันได้อีกครั้ง ถ้าวันไหนไม่สบายใจ บล็อกใหม่ได้เสมอนะ', "You can see each other's profiles and invites again. If anything ever feels off, you can always block again")}
         </p>
       </div>
       {/* one button for both: the focus stays put when it turns from ลองอีกครั้ง into โอเค */}

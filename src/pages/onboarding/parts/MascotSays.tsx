@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { Ear, Phone } from 'lucide-react'
+import { Ear, MessageCircleHeart } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Avatar, type MochiFace } from '@/components/ui'
 import { t } from '@/lib/i18n'
@@ -18,6 +18,8 @@ interface MascotSaysProps {
   focusOnMount?: boolean
   /** show the quiet "listening" cue while there's no reply */
   listening?: boolean
+  /** tighter bubble with no reply slot, for screens that need the room (the reply shows elsewhere) */
+  compact?: boolean
 }
 
 /**
@@ -25,7 +27,7 @@ interface MascotSaysProps {
  * (space reserved up front, so nothing jumps), then little reaction
  * bubbles pop in underneath as the visitor fills things in.
  */
-export function MascotSays({ line, sub, face, reaction, focusOnMount, listening = true }: MascotSaysProps) {
+export function MascotSays({ line, sub, face, reaction, focusOnMount, listening = true, compact = false }: MascotSaysProps) {
   const reduce = useReducedMotion()
   const heading = useRef<HTMLHeadingElement>(null)
   const [typing, setTyping] = useState(!reduce)
@@ -37,9 +39,9 @@ export function MascotSays({ line, sub, face, reaction, focusOnMount, listening 
   return (
     <motion.div variants={fadeUp} className="flex items-start gap-3 sm:gap-4">
       <div className={`relative mt-1 shrink-0 rounded-full bg-white p-1.5 shadow-[var(--shadow-soft)] ${reduce ? '' : 'animate-float'}`}>
-        <Avatar color="cream" size={46} face={typing ? 'talk' : face} />
+        <Avatar color="cream" size={compact ? 38 : 46} face={typing ? 'talk' : face} />
         <span className="absolute -right-1 -bottom-1 grid size-6 place-items-center rounded-full border-2 border-white bg-mint text-ink" aria-hidden>
-          <Phone size={11} strokeWidth={2.8} />
+          <MessageCircleHeart size={12} strokeWidth={2.6} />
         </span>
       </div>
 
@@ -49,15 +51,15 @@ export function MascotSays({ line, sub, face, reaction, focusOnMount, listening 
           animate={{ opacity: 1, scale: 1 }}
           transition={spring.bouncy}
           style={{ originX: 0, originY: 0 }}
-          className="relative w-fit max-w-full rounded-[1.6rem] rounded-tl-md bg-white px-4 py-3 shadow-[var(--shadow-soft)] sm:px-5 sm:py-4"
+          className={`relative w-fit max-w-full rounded-[1.6rem] rounded-tl-md bg-white px-4 shadow-[var(--shadow-soft)] sm:px-5 ${compact ? 'py-2.5 sm:py-3' : 'py-3 sm:py-4'}`}
         >
           <p className="mb-0.5 flex items-center gap-1.5 text-xs font-semibold text-ink-soft">
-            {t('น้องโมชิ', 'Little Mochi')} <SignalBars ringing={typing} />
+            {t('น้องโมชิ', 'Little Mochi')} <SignalBars tuning={typing} />
           </p>
           <h1
             ref={heading}
             tabIndex={-1}
-            className="font-display text-[1.35rem] leading-[1.5] font-semibold text-ink outline-none sm:text-[1.65rem]"
+            className={`font-display leading-[1.5] font-semibold text-ink outline-none ${compact ? 'text-[1.2rem] sm:text-[1.5rem]' : 'text-[1.3rem] sm:text-[1.65rem]'}`}
           >
             <span className="sr-only">{line}</span>
             <TypedText key={line} text={line} instant={!!reduce} onDone={() => setTyping(false)} />
@@ -66,11 +68,13 @@ export function MascotSays({ line, sub, face, reaction, focusOnMount, listening 
         </motion.div>
 
         {/* slot keeps its height so the form below doesn't jump when a reply pops in */}
-        <div aria-live="polite" className={listening ? 'flex min-h-11 items-start' : 'flex items-start'}>
-          <AnimatePresence mode="wait" initial={false}>
-            {reaction ? <ReactionBubble key={reaction} text={reaction} /> : listening && <Listening key="listening" />}
-          </AnimatePresence>
-        </div>
+        {!compact && (
+          <div aria-live="polite" className={listening ? 'flex min-h-11 items-start' : 'flex items-start'}>
+            <AnimatePresence mode="wait" initial={false}>
+              {reaction ? <ReactionBubble key={reaction} text={reaction} /> : listening && <Listening key="listening" />}
+            </AnimatePresence>
+          </div>
+        )}
       </div>
     </motion.div>
   )

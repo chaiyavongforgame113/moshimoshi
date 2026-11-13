@@ -1,7 +1,7 @@
 import { motion, useReducedMotion } from 'motion/react'
 
 /**
- * Phone "ring waves" pulsing out from the centre of a 3D stage.
+ * Soft ripples pulsing out from the centre of a 3D stage.
  * Border-only so the WebGL canvas behind stays visible.
  */
 export function Rings({ color, count = 3, size = 220, speed = 2.6, className = '' }: { color: string; count?: number; size?: number; speed?: number; className?: string }) {

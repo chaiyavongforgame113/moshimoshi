@@ -1,12 +1,10 @@
-import { motion } from 'motion/react'
 import { ChevronRight, Hand, Radio } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router'
-import { Avatar, Button, ReasonIcon, SignalMeter, WaveMatch } from '@/components/ui'
+import { Avatar, Button, ReasonIcon, ShowMore, SignalMeter, WaveMatch } from '@/components/ui'
 import { useMatches, usePeople } from '@/data/hooks'
 import { known, t } from '@/lib/i18n'
-import { SIGNAL_LEVELS } from '@/lib/matching'
-import { fadeUp, stagger } from '@/lib/motion'
+import { MIN_LEVEL, SIGNAL_LEVELS } from '@/lib/matching'
 import { useMoshi } from '@/lib/store'
 import type { MatchResult, Room, User } from '@/lib/types'
 import { ageLabel } from '@/pages/people/lib'
@@ -45,13 +43,18 @@ export function MembersTab({ room, onGreet }: { room: Room; onGreet: (u: User) =
       </ol>
 
       {ranked.length > 0 ? (
-        <motion.ul variants={stagger(0.06, 0.05)} initial="hidden" animate="show" className="mt-4 space-y-3">
-          {ranked.map(({ u, m }, i) => (
-            <motion.li key={u.id} variants={fadeUp}>
-              <MemberRow user={u} match={m} myAge={myAge} host={room.hostIds.includes(u.id)} top={i === 0} onGreet={() => onGreet(u)} />
-            </motion.li>
-          ))}
-        </motion.ul>
+        // everyone in the room (a member list, not suggestions), five at a time
+        <ShowMore
+          items={ranked}
+          initial={5}
+          getKey={({ u }) => u.id}
+          className="mt-4"
+          listClassName="space-y-3"
+          moreLabel={(n) => t(`ดูคนในห้องเพิ่ม (อีก ${n} คน)`, `Show more people (${n} more)`)}
+          render={({ u, m }, i) => (
+            <MemberRow user={u} match={m} myAge={myAge} host={room.hostIds.includes(u.id)} top={i === 0 && m.level >= MIN_LEVEL} onGreet={() => onGreet(u)} />
+          )}
+        />
       ) : (
         <div className="card mt-4 flex flex-col items-center px-6 py-10 text-center">
           <Avatar color={room.color} size={72} face="sleepy" />

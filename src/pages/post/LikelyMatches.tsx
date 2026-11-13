@@ -1,104 +1,116 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { Radio } from 'lucide-react'
-import { useMemo } from 'react'
-import { Link } from 'react-router'
-import { Avatar, SignalMeter } from '@/components/ui'
-import { useDataReady, usePeople } from '@/data/hooks'
-import { t } from '@/lib/i18n'
-import { signalMeta } from '@/lib/matching'
+import { DoorOpen, Send, Users } from 'lucide-react'
+import { Link, useNavigate } from 'react-router'
+import { Avatar, Button, ButtonLink, Section, SignalMeter } from '@/components/ui'
+import { useChats, useDataReady, usePerson, useRoom } from '@/data/hooks'
+import { sameTag, tagOf } from '@/data/tags'
+import { displayName, t } from '@/lib/i18n'
+import { MIN_LEVEL, signalMeta } from '@/lib/matching'
 import { spring } from '@/lib/motion'
-import type { Intent, MatchResult, User } from '@/lib/types'
-import { AnimatedNumber } from '@/pages/home/Block'
-import { useMatchesFor } from '@/pages/home/matches'
-import { SoftSkeleton } from '@/pages/home/Soft'
+import type { Intent, MatchResult } from '@/lib/types'
+import { chatToOpen } from '@/pages/chats/lib'
+import { roomLabel } from '@/pages/home/greeting'
 
-/** Live "คนที่น่าจะตรง": re-tunes as the draft changes. Shows a people count, never a compatibility number. */
-export function LikelyMatches({ intent, ready }: { intent: Intent; ready: boolean }) {
-  const reduce = useReducedMotion()
+/** how many people the success screen suggests */
+const LIKELY_MAX = 3
+
+/**
+ * "คนที่น่าจะสนใจ" after posting: up to 3 people at MIN_LEVEL or above, whoever is into this post's
+ * topic first (`matches` from useMatchesFor, already filtered and ordered), each with a "ชวน" button
+ * that opens a chat. Only the first one is the screen's primary button.
+ */
+export function LikelyMatches({ intent, matches }: { intent: Intent; matches: MatchResult[] }) {
   const dataReady = useDataReady()
-  const mine = useMemo(() => [intent], [intent])
-  const results = useMatchesFor(mine)
-  const people = usePeople()
-  const strong = results.filter((r) => r.level >= 3)
-  const top = results
-    .slice(0, 3)
-    .map((m) => ({ m, u: people.find((p) => p.id === m.userId) }))
-    .filter((x): x is { m: MatchResult; u: User } => !!x.u)
-  const pingKey = `${strong.length}-${top.map((x) => x.m.userId).join()}`
+  const room = useRoom(intent.roomId)
+  const top = matches.slice(0, LIKELY_MAX)
 
   return (
-    <section aria-labelledby="likely-title" className="card relative overflow-hidden p-4">
-      <header className="flex items-center gap-3">
-        <span className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-2xl bg-mint/60 text-ink" aria-hidden>
-          {!reduce && ready && (
-            <motion.span
-              key={pingKey}
-              className="absolute inset-0 rounded-2xl border-2 border-mint"
-              initial={{ scale: 1, opacity: 0.9 }}
-              animate={{ scale: 1.7, opacity: 0 }}
-              transition={{ duration: 0.9, ease: 'easeOut' }}
-            />
-          )}
-          <Radio size={20} strokeWidth={2.4} />
-        </span>
-        <div className="min-w-0">
-          <h2 id="likely-title" className="font-display text-lg leading-snug font-semibold">
-            {t('คนที่น่าจะตรง', 'Likely matches')}
-          </h2>
-          <p className="text-xs text-ink-soft">{t('จูนคลื่นใหม่ทุกครั้งที่เราแก้โพสต์', 'Re-tunes every time you edit your post')}</p>
-        </div>
-      </header>
-
-      {!ready ? (
-        <p className="mt-3 rounded-2xl bg-cream p-3 text-sm text-ink-soft">
-          {t('เลือกกิจกรรมหลักก่อน แล้วโมชิจะช่วยหาคนที่คลื่นตรงกันให้', 'Pick a main activity and Mochi will find people on your wavelength')}
-        </p>
-      ) : !dataReady ? (
-        <SoftSkeleton rows={2} className="mt-3" />
-      ) : !top.length ? (
-        <p className="mt-3 rounded-2xl bg-cream p-3 text-sm text-ink-soft">
-          {t(
-            'ตอนนี้ยังไม่มีใครให้จูนคลื่นด้วยเลย โพสต์ไว้ก่อนได้นะ ใครมาแล้วจะเห็นโพสต์นี้ทันที',
-            'No one to tune in with just yet. Post anyway. Anyone who drops by will see it right away',
-          )}
-        </p>
-      ) : (
-        <>
-          <p className="mt-3 flex flex-wrap items-baseline gap-x-2" aria-live="polite">
-            <AnimatedNumber value={strong.length} className="font-display text-4xl leading-tight font-bold" />
-            <span className="text-sm text-ink-soft">
-              {t(`คนที่สัญญาณ "${signalMeta(3).label}" ขึ้นไป`, `${strong.length === 1 ? 'person' : 'people'} at "${signalMeta(3).label}" or higher`)}
-            </span>
-          </p>
-          <ul className="mt-2 space-y-1">
-            <AnimatePresence mode="popLayout" initial={false}>
-              {top.map(({ m, u }) => {
-                const reason = m.reasons.find((r) => r.kind === 'intent' || r.kind === 'swap') ?? m.reasons[0]
-                return (
-                  <motion.li
-                    key={m.userId}
-                    layout
-                    initial={{ opacity: 0, x: 16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -16 }}
-                    transition={spring.soft}
-                  >
-                    <Link to={`/app/people/${u.id}`} className="flex min-h-14 items-center gap-3 rounded-2xl p-1.5 transition-colors hover:bg-cream">
-                      <Avatar color={u.color} size={38} online={u.isOnline} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-display text-sm font-semibold">{u.name}</span>
-                        {reason && <span className="block truncate text-xs text-ink-soft">{reason.text}</span>}
-                      </span>
-                      <SignalMeter level={m.level} size="xs" showLabel={false} />
-                    </Link>
-                  </motion.li>
-                )
-              })}
-            </AnimatePresence>
-          </ul>
-        </>
+    <Section
+      tone="mint"
+      icon={<Users size={18} strokeWidth={2.4} />}
+      title={t('คนที่น่าจะสนใจ', 'People who might be in')}
+      note={t(
+        `คนที่ชอบเรื่องนี้ขึ้นก่อน ทุกคนคลื่น "${signalMeta(MIN_LEVEL).label}" ขึ้นไป`,
+        `People into this come first, all "${signalMeta(MIN_LEVEL).label}" or higher`,
       )}
-    </section>
+      className="w-full text-left"
+    >
+      {!dataReady ? (
+        <div className="space-y-2" aria-hidden>
+          {[0, 1].map((i) => (
+            <div key={i} className="h-16 animate-pulse rounded-3xl bg-white/70 motion-reduce:animate-none" />
+          ))}
+        </div>
+      ) : top.length ? (
+        <ul className="space-y-2">
+          <AnimatePresence initial={false}>
+            {top.map((m, i) => (
+              <InviteRow key={m.userId} match={m} intent={intent} index={i} />
+            ))}
+          </AnimatePresence>
+        </ul>
+      ) : (
+        <div className="flex flex-col items-start gap-3 rounded-3xl border-2 border-dashed border-line bg-white/50 p-4 sm:flex-row sm:items-center">
+          <p className="min-w-0 flex-1 text-sm text-ink-soft">
+            {t(
+              'ตอนนี้ยังไม่มีใครคลื่นตรงกับโพสต์นี้ โมชิจะคอยดูให้นะ ระหว่างนี้แวะไปทักทายในห้องก่อนก็ได้',
+              "No one's on this wavelength just yet. Mochi will keep watch. Meanwhile, drop by the room and say hi",
+            )}
+          </p>
+          <ButtonLink to={room ? `/app/rooms/${room.id}` : '/app/rooms'} variant="secondary" size="sm" icon={<DoorOpen size={16} aria-hidden />} className="max-w-full">
+            <span className="min-w-0 truncate">{room ? t(`ไปห้อง ${roomLabel(room.name)}`, `Go to ${roomLabel(room.name)}`) : t('ไปดูห้อง', 'See rooms')}</span>
+          </ButtonLink>
+        </div>
+      )}
+    </Section>
   )
 }
 
+/** One person: tap the row for their profile, "ชวน" to say hi (straight to the chat if we already talk). */
+function InviteRow({ match: m, intent, index }: { match: MatchResult; intent: Intent; index: number }) {
+  const reduce = useReducedMotion()
+  const navigate = useNavigate()
+  const chats = useChats()
+  const u = usePerson(m.userId)
+  if (!u) return null
+  const chatId = chatToOpen(chats, u.id)?.id
+  const name = displayName(u.name)
+  // why them, for this post: their invite fits mine, or the topic is on their profile, or their best reason
+  const tag = tagOf(intent.tagId)
+  const reason =
+    m.breakdown.intent > 0
+      ? m.reasons.find((r) => r.kind === 'intent' || r.kind === 'swap')?.text
+      : tag && u.tags.some((x) => sameTag(x, intent.tagId))
+        ? t(`ชอบ ${tag.label} ตรงกับที่เราชวนอยู่พอดี`, `Into ${tag.label}, just what you're inviting people for`)
+        : m.reasons[0]?.text
+
+  return (
+    <motion.li
+      initial={reduce ? false : { opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...spring.soft, delay: reduce ? 0 : 0.15 + index * 0.08 }}
+      className="flex items-center gap-2 rounded-3xl bg-white/85 p-2 pr-2.5 shadow-[var(--shadow-soft)] sm:gap-3"
+    >
+      <Link to={`/app/people/${u.id}`} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-2xl outline-offset-2 sm:gap-3">
+        <Avatar color={u.color} size={44} online={u.isOnline} />
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2">
+            <span className="min-w-0 truncate font-display font-semibold text-ink">{name}</span>
+            <SignalMeter level={m.level} size="xs" showLabel={false} className="shrink-0" />
+          </span>
+          {reason && <span className="block truncate text-xs text-ink-soft">{reason}</span>}
+        </span>
+      </Link>
+      <Button
+        size="sm"
+        variant={index === 0 ? 'primary' : 'secondary'}
+        icon={<Send size={15} strokeWidth={2.4} aria-hidden />}
+        onClick={() => navigate(chatId ? `/app/chats/${chatId}` : `/app/people/${u.id}?send=1`)}
+        aria-label={t(`ชวน ${name}`, `Invite ${name}`)}
+        className="shrink-0"
+      >
+        {t('ชวน', 'Invite')}
+      </Button>
+    </motion.li>
+  )
+}

@@ -1,6 +1,6 @@
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { AnimatePresence, motion, useInView, useReducedMotion } from 'motion/react'
 import { MessageCircle, MessageCircleHeart } from 'lucide-react'
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useParams, useSearchParams } from 'react-router'
 import { KineticText, Reveal } from '@/components/motion'
 import { Avatar, Button, ButtonLink, PageHeader, SignalMeter } from '@/components/ui'
@@ -11,9 +11,9 @@ import { spring } from '@/lib/motion'
 import type { MatchResult, User } from '@/lib/types'
 import { chatPhase, chatToOpen } from '@/pages/chats/lib'
 import { ageLabel, useIsMine } from './lib'
-import { CallingScreen } from './profile/CallingScreen'
+import { HelloSent } from './profile/HelloSent'
 import { ProfileHero } from './profile/ProfileHero'
-import { IntentsBlock, MatchBlock, PromptsBlock, RoomsBlock, TagsBlock } from './profile/ProfileSections'
+import { AboutBlock, IntentsBlock, PromptsBlock, RoomsBlock, TagsBlock, WhyBlock } from './profile/ProfileSections'
 import { SafetyMenu } from './profile/SafetyMenu'
 import { SendMoshiSheet } from './profile/SendMoshiSheet'
 import { PageSkeleton } from './Skeleton'
@@ -35,7 +35,7 @@ function Profile({ user, match }: { user: User; match: MatchResult }) {
   const reduce = useReducedMotion()
   const myAge = useMoshi((s) => s.me.age)
   const chats = useChats()
-  // a call they rang and we closed can ring again; one they declined opens the chat instead
+  // a hello they sent and we set aside can be answered with a new one; anything else opens the chat
   const chat = chatToOpen(chats, user.id)
   const sendMoshi = useMoshi((s) => s.sendMoshi)
   const [params, setParams] = useSearchParams()
@@ -52,29 +52,33 @@ function Profile({ user, match }: { user: User; match: MatchResult }) {
       { replace: true },
     )
   }, [params, setParams])
-  const [calling, setCalling] = useState<{ chatId: string; opener: string } | null>(null)
-  const callChat = useChat(calling?.chatId)
+  const [sent, setSent] = useState<{ chatId: string; opener: string } | null>(null)
+  const sentChat = useChat(sent?.chatId)
   useEffect(() => {
     // the server said no (the toast already explains): back to the profile, not a false "sent"
-    if (calling && (!callChat || chatPhase(callChat) === 'ended')) setCalling(null)
-  }, [calling, callChat])
+    if (sent && (!sentChat || chatPhase(sentChat) === 'ended')) setSent(null)
+  }, [sent, sentChat])
+
+  // the sticky bar on phones only shows once the main button has scrolled away: one "ทักแชท" on screen at a time
+  const ctaBox = useRef<HTMLDivElement>(null)
+  const ctaInView = useInView(ctaBox, { initial: true })
 
   // live: the id may be temporary until the server answers (useChat follows it); a refusal shows as a toast
   const send = (text: string) => {
     const chatId = sendMoshi(user.id, text)
     setSheetOpen(false)
-    setCalling({ chatId, opener: text })
+    setSent({ chatId, opener: text })
     window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' })
   }
 
   const cta = (compact: boolean) =>
     chat ? (
-      <ButtonLink to={`/app/chats/${chat.id}`} size={compact ? 'md' : 'lg'} icon={<MessageCircle size={20} aria-hidden />}>
+      <ButtonLink to={`/app/chats/${chat.id}`} size={compact ? 'md' : 'lg'} className={compact ? '' : 'w-full sm:w-auto'} icon={<MessageCircle size={20} aria-hidden />}>
         {t('ไปที่แชท', 'Go to chat')}
       </ButtonLink>
     ) : (
-      <Button size={compact ? 'md' : 'lg'} icon={<MessageCircleHeart size={20} aria-hidden />} onClick={() => setSheetOpen(true)}>
-        {compact ? t('ทักแชท', 'Say hi') : t(`ทักแชทหา${user.name}`, `Say hi to ${user.name}`)}
+      <Button size={compact ? 'md' : 'lg'} className={compact ? '' : 'w-full sm:w-auto'} icon={<MessageCircleHeart size={20} aria-hidden />} onClick={() => setSheetOpen(true)}>
+        {t('ทักแชท', 'Say hi')}
       </Button>
     )
 
@@ -88,14 +92,17 @@ function Profile({ user, match }: { user: User; match: MatchResult }) {
       />
 
       <AnimatePresence mode="wait" initial={false}>
-        {calling ? (
-          <CallingScreen key="calling" user={user} chatId={calling.chatId} opener={calling.opener} onBack={() => setCalling(null)} />
+        {sent ? (
+          <HelloSent key="sent" user={user} chatId={sent.chatId} opener={sent.opener} onBack={() => setSent(null)} />
         ) : (
           <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <ProfileHero user={user} cta={cta(false)} />
-            <MatchBlock match={match} user={user} />
+            <ProfileHero user={user} />
+            <WhyBlock match={match} user={user} showOpener={!chat} cta={<div ref={ctaBox}>{cta(false)}</div>} />
             <Reveal>
               <TagsBlock match={match} user={user} />
+            </Reveal>
+            <Reveal>
+              <AboutBlock user={user} />
             </Reveal>
             <Reveal>
               <PromptsBlock user={user} />
@@ -106,7 +113,7 @@ function Profile({ user, match }: { user: User; match: MatchResult }) {
             <Reveal>
               <RoomsBlock user={user} />
             </Reveal>
-            <StickyCta user={user} match={match}>
+            <StickyCta user={user} match={match} show={!ctaInView}>
               {cta(true)}
             </StickyCta>
           </motion.div>
@@ -119,25 +126,31 @@ function Profile({ user, match }: { user: User; match: MatchResult }) {
 }
 
 /**
- * Phones: the CTA floats above the bottom nav while scrolling (sticky, so it
- * settles into place at the end of the page instead of covering content).
+ * Phones: the CTA floats above the bottom nav while scrolling (sticky, so it settles into
+ * place at the end of the page instead of covering content). Hidden while the main button shows.
  */
-function StickyCta({ user, match, children }: { user: User; match: MatchResult; children: ReactNode }) {
+function StickyCta({ user, match, show, children }: { user: User; match: MatchResult; show: boolean; children: ReactNode }) {
+  const reduce = useReducedMotion()
   return (
-    <div className="sticky bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+5.9rem)] z-20 mt-8 lg:hidden">
-      <motion.div
-        initial={{ y: 30, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ ...spring.soft, delay: 0.35 }}
-        className="glass flex items-center gap-3 rounded-[1.75rem] bg-white/92 p-2 pl-3"
-      >
-        <Avatar color={user.color} size={40} face="smile" online={user.isOnline} />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-display text-sm font-semibold">{user.name}</span>
-          <SignalMeter level={match.level} size="xs" short />
-        </span>
-        <span className="shrink-0">{children}</span>
-      </motion.div>
+    <div className="pointer-events-none sticky bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+5.9rem)] z-20 mt-8 min-h-[3.5rem] lg:hidden">
+      <AnimatePresence>
+        {show && (
+          <motion.div
+            initial={reduce ? { opacity: 0 } : { y: 30, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={reduce ? { opacity: 0 } : { y: 30, opacity: 0 }}
+            transition={spring.soft}
+            className="glass pointer-events-auto flex items-center gap-3 rounded-[1.75rem] bg-white/92 p-2 pl-3"
+          >
+            <Avatar color={user.color} size={40} face="smile" online={user.isOnline} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-display text-sm font-semibold">{user.name}</span>
+              <SignalMeter level={match.level} size="xs" short />
+            </span>
+            <span className="shrink-0">{children}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

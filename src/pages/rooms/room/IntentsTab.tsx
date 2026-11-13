@@ -30,14 +30,14 @@ export function IntentsTab({ room }: { room: Room }) {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 id="intents-title" className="font-display text-xl font-semibold">
-            {t('โพสต์หาเพื่อนในห้องนี้', 'Posts in this room')}
+            {t('ชวนเล่นในห้องนี้', 'Invites in this room')}
           </h2>
           <p className="text-sm text-ink-soft">
             {t('กด “ฉันด้วย” ให้เขารู้ว่ามีเพื่อนสนใจ แล้วค่อยทักไปคุยต่อ', 'Tap “Me too!” so they know someone’s keen, then say hi')}
           </p>
         </div>
         <ButtonLink to={`/app/post?room=${room.id}`} icon={<Plus size={16} strokeWidth={2.8} />}>
-          {t('โพสต์หาเพื่อน', 'Post to find friends')}
+          {t('ชวนเล่น', 'Invite to play')}
         </ButtonLink>
       </div>
 
@@ -67,7 +67,7 @@ export function IntentsTab({ room }: { room: Room }) {
             {t('เป็นคนแรกเลยไหม บอกเพื่อนๆ ว่าอยากหาใครมาทำอะไรด้วยกัน', "Want to be first? Tell everyone who you'd like to find, and what to do together")}
           </p>
           <ButtonLink to={`/app/post?room=${room.id}`} className="mt-4" icon={<Plus size={18} strokeWidth={2.8} />}>
-            {t('โพสต์หาเพื่อน', 'Post to find friends')}
+            {t('ชวนเล่น', 'Invite to play')}
           </ButtonLink>
         </div>
       )}

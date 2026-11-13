@@ -15,6 +15,7 @@ export function Block({
   tone,
   children,
   className = '',
+  zoneClassName = '',
 }: {
   id: string
   title: ReactNode
@@ -24,10 +25,12 @@ export function Block({
   tone?: MochiColor
   children: ReactNode
   className?: string
+  /** extra classes for the zone itself */
+  zoneClassName?: string
 }) {
   return (
     <Reveal margin="0px 0px -60px 0px" className={className}>
-      <Zone id={id} title={title} icon={icon} note={note} action={action} tone={tone} className="h-full">
+      <Zone id={id} title={title} icon={icon} note={note} action={action} tone={tone} className={`h-full ${zoneClassName}`}>
         {children}
       </Zone>
     </Reveal>

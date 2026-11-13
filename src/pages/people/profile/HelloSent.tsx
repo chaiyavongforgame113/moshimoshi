@@ -25,7 +25,7 @@ const FLOATERS: Floater[] = [
 ]
 
 /** Success moment after sending a hello: a chat bubble floats between our two mochi. */
-export function CallingScreen({ user, chatId, opener, onBack }: { user: User; chatId: string; opener: string; onBack: () => void }) {
+export function HelloSent({ user, chatId, opener, onBack }: { user: User; chatId: string; opener: string; onBack: () => void }) {
   const reduce = useReducedMotion()
   const meColor = useMoshi((s) => s.me.color)
   const heading = useRef<HTMLHeadingElement>(null)

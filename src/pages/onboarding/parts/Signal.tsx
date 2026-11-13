@@ -1,12 +1,12 @@
 import { motion, useReducedMotion } from 'motion/react'
 
 /**
- * Tiny phone-signal bars — the brand's "on a call" cue.
- * `ringing` makes them pulse in sequence like a call connecting.
+ * Tiny signal bars, the brand's "same wavelength" cue.
+ * `tuning` makes them pulse in sequence like a signal locking on.
  */
-export function SignalBars({ ringing = false, className = '' }: { ringing?: boolean; className?: string }) {
+export function SignalBars({ tuning = false, className = '' }: { tuning?: boolean; className?: string }) {
   const reduce = useReducedMotion()
-  const loop = ringing && !reduce
+  const loop = tuning && !reduce
   return (
     <span className={`inline-flex h-3 items-end gap-[2px] ${className}`} aria-hidden>
       {[0, 1, 2, 3].map((i) => (

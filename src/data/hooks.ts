@@ -1,14 +1,16 @@
 import { useEffect, useMemo } from 'react'
 import { useLang } from '@/lib/i18n'
 import { questionInLang, roomInLang, sessionInLang } from '@/lib/i18n/catalog'
-import { matchAll, matchUser, onWavelength } from '@/lib/matching'
+import { matchAll, matchUser, MIN_LEVEL, onWavelength, type MatchExtras } from '@/lib/matching'
 import { useMoshi } from '@/lib/store'
-import type { Chat, ChatMessage, DailyQuestion, Intent, MatchResult, Room, SignalLevel, Session, User } from '@/lib/types'
+import type { Chat, ChatMessage, DailyQuestion, Intent, MatchResult, Room, SignalLevel, Session, User, WaveAnswers } from '@/lib/types'
 import { useCatalog } from './catalog'
 import { resolveId } from './live/bus'
 import type { LiveChat } from './live/map'
 import { isSample } from './live/sample'
 import { ensureRoomHistory } from './live/sync'
+import { DEMO_CHATS } from './mock'
+import { sameTag } from './tags'
 
 /*
  * The ONLY way pages read app data. Same shapes in demo and live mode, so a
@@ -123,6 +125,26 @@ export function useChats(): Chat[] {
   return useMemo(() => (blocked.length ? chats.filter((c) => !blocked.includes(c.withUserId)) : chats), [chats, blocked])
 }
 
+/** demo mode's ready-made lines: they were "said" before this visitor ever arrived */
+const SEEDED_LINES = new Set(DEMO_CHATS.flatMap((c) => c.messages.map((m) => m.id)))
+
+/**
+ * Have I said hi to someone myself? A hello I sent, or a line I wrote in any chat. Someone
+ * saying hi to me doesn't count until I answer, and demo mode's seeded chats never do.
+ */
+export function useSaidHi(): boolean {
+  const chats = useChats()
+  const myId = useMyId()
+  const sentHello = useMoshi((s) => s.sentMoshi.length > 0)
+  return useMemo(() => {
+    if (sentHello) return true
+    const mine = (id: string | undefined) => id === myId || id === 'me'
+    return chats.some(
+      (c) => mine(c.requestedBy) || c.messages.some((m) => mine(m.userId) && m.kind !== 'system' && !SEEDED_LINES.has(m.id)),
+    )
+  }, [chats, myId, sentHello])
+}
+
 /** A chat by id; a temporary id from a moshi still being sent resolves to the real chat. */
 export function useChat(id: string | undefined): Chat | undefined {
   const chats = useChats()
@@ -141,13 +163,32 @@ export function useChatStatus(id: string | undefined): Pick<LiveChat, 'status' |
   return useMemo(() => (status && requestedBy ? { status, requestedBy } : undefined), [status, requestedBy])
 }
 
-/** Everyone ranked by "สัญญาณถูกคอ" against me (uses my intents too). */
+const NO_QUIZ: Record<string, WaveAnswers> = {}
+
+/**
+ * "จูนคลื่น" picks by user id: the quiz part of the wave. Empty until the quiz ships, and the
+ * wave simply leaves that part out for anyone who hasn't played. The quiz phase fills this
+ * (my picks from useMoshi, other people's from the catalog) and every match follows.
+ */
+export function useWaveAnswers(): Record<string, WaveAnswers> {
+  return NO_QUIZ
+}
+
+/** What the matcher needs beyond profiles and posts: quiz picks and the events I'm going to. */
+export function useMatchExtras(): MatchExtras {
+  const quiz = useWaveAnswers()
+  const going = useMoshi((s) => s.going)
+  return useMemo(() => ({ quiz, going }), [quiz, going])
+}
+
+/** Everyone ranked by "สัญญาณถูกคอ" against me (my posts only add a small bonus). */
 export function useMatches(): MatchResult[] {
   const me = useMoshi((s) => s.me)
   const myIntents = useMoshi((s) => s.myIntents)
   const people = usePeople()
   const intents = useCatalog((s) => s.intents)
-  return useMemo(() => matchAll(me, myIntents, people, intents), [me, myIntents, people, intents])
+  const extras = useMatchExtras()
+  return useMemo(() => matchAll(me, myIntents, people, intents, extras), [me, myIntents, people, intents, extras])
 }
 
 /**
@@ -159,13 +200,108 @@ export function useWavelengthMatches(min?: SignalLevel): MatchResult[] {
   return useMemo(() => onWavelength(matches, min), [matches, min])
 }
 
+/** 'YYYY-MM-DD' in Bangkok, so the daily pick turns over at local midnight. */
+const bangkokDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date())
+
+function hashText(text: string): number {
+  let h = 0
+  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0
+  return Math.abs(h)
+}
+
+const PICK_KEY = 'moshi-daily-pick'
+
+interface KeptPick {
+  day: string
+  me: string
+  id: string
+}
+
+/** Today's pick as this browser remembers it (null in a private window or with storage blocked). */
+function keptPick(): KeptPick | null {
+  try {
+    const raw = localStorage.getItem(PICK_KEY)
+    return raw ? (JSON.parse(raw) as KeptPick) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * "คลื่นของวันนี้": one person a day, drawn from the top five on my wavelength that I'm not
+ * already chatting with. Same pick all day (on every screen), a new one tomorrow. Saying hi
+ * to them doesn't swap them out: the pick is remembered for the day while they stay on my wavelength.
+ */
+export function useDailyPick(): MatchResult | undefined {
+  const matches = useWavelengthMatches()
+  const chats = useChats()
+  const myId = useMyId()
+  const day = bangkokDay()
+  const pick = useMemo(() => {
+    const kept = keptPick()
+    const same = kept && kept.day === day && kept.me === myId ? matches.find((m) => m.userId === kept.id) : undefined
+    if (same) return same
+    const talking = new Set(chats.map((c) => c.withUserId))
+    const pool = matches.filter((m) => !talking.has(m.userId)).slice(0, 5)
+    return pool.length ? pool[hashText(`${day}:${myId}`) % pool.length] : undefined
+  }, [matches, chats, myId, day])
+  const pickId = pick?.userId
+  useEffect(() => {
+    if (!pickId) return
+    try {
+      localStorage.setItem(PICK_KEY, JSON.stringify({ day, me: myId, id: pickId } satisfies KeptPick))
+    } catch {
+      // storage blocked: the pick is still the same all day, it may just change after saying hi
+    }
+  }, [pickId, day, myId])
+  return pick
+}
+
 export function useMatch(userId: string | undefined): MatchResult | undefined {
   const me = useMoshi((s) => s.me)
   const myIntents = useMoshi((s) => s.myIntents)
   const people = useCatalog((s) => s.people)
   const intents = useCatalog((s) => s.intents)
+  const extras = useMatchExtras()
   return useMemo(() => {
     const them = people.find((u) => u.id === userId)
-    return them ? matchUser(me, them, myIntents, people, intents) : undefined
-  }, [me, myIntents, people, intents, userId])
+    return them ? matchUser(me, them, myIntents, people, intents, extras) : undefined
+  }, [me, myIntents, people, intents, extras, userId])
+}
+
+/** One post on the "ชวนเล่น" board, with who posted it and their signal with me. */
+export interface Invite {
+  intent: Intent
+  poster: User
+  match: MatchResult
+}
+
+/**
+ * The "ชวนเล่น" board: other people's posts (never mine, never from anyone I blocked) from people
+ * on my wavelength (MIN_LEVEL and up: the board suggests the people who posted, so it follows the
+ * same cutoff as every other suggestion). Strongest signal first, posts about things I like next, then newest.
+ */
+export function useInviteBoard(): Invite[] {
+  const intents = useIntents()
+  const people = usePeople()
+  const matches = useMatches()
+  const myId = useMyId()
+  const myTags = useMoshi((s) => s.me.tags)
+  return useMemo(() => {
+    const byId = new Map(people.map((u) => [u.id, u]))
+    const signal = new Map(matches.map((m) => [m.userId, m]))
+    return intents
+      .flatMap((intent) => {
+        const poster = byId.get(intent.userId)
+        const match = signal.get(intent.userId)
+        if (!poster || !match || intent.userId === myId || intent.userId === 'me') return []
+        if (match.level < MIN_LEVEL) return []
+        return [{ intent, poster, match, likeIt: myTags.some((t) => sameTag(t, intent.tagId)) }]
+      })
+      .sort(
+        (a, b) =>
+          b.match.level - a.match.level || Number(b.likeIt) - Number(a.likeIt) || a.intent.postedMinutesAgo - b.intent.postedMinutesAgo,
+      )
+      .map(({ intent, poster, match }) => ({ intent, poster, match }))
+  }, [intents, people, matches, myId, myTags])
 }

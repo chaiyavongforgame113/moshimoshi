@@ -17,7 +17,7 @@ import {
 import { useCallback, useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { InstallSheet } from '@/app/InstallSheet'
-import { Avatar, Button, ButtonLink, LangToggle, Section, Sheet } from '@/components/ui'
+import { Avatar, Button, ButtonLink, LangToggle, Section, Sheet, ShowMore } from '@/components/ui'
 import { useDataMode } from '@/data/hooks'
 import { useInstallPrompt } from '@/lib/hooks'
 import { L, loc, t } from '@/lib/i18n'
@@ -56,10 +56,12 @@ export function Settings() {
   const [sheet, setSheet] = useState<SheetKind | null>(null)
   const install = useInstallPrompt()
   const close = useCallback(() => setSheet(null), [])
-  return (
-    <Section tone="lavender" icon={<SlidersHorizontal size={18} strokeWidth={2.4} />} title={t('ตั้งค่า', 'Settings')}>
-      <ul className="card divide-y divide-line/70 overflow-hidden rounded-3xl">
-        <LangRow />
+  // the first three show; the rest wait behind "ตั้งค่าอื่นๆ"
+  const rows: { key: string; node: ReactNode }[] = [
+    { key: 'lang', node: <LangRow /> },
+    {
+      key: 'who',
+      node: (
         <Row
           icon={MessageCircleHeart}
           tint="bg-peach/50"
@@ -67,6 +69,11 @@ export function Settings() {
           value={WHO.find((w) => w.key === who)?.label}
           onClick={() => setSheet('who')}
         />
+      ),
+    },
+    {
+      key: 'blocked',
+      node: (
         <Row
           icon={Ban}
           tint="bg-coral/25"
@@ -74,6 +81,11 @@ export function Settings() {
           value={blockedCount ? t(`${blockedCount} คน`, blockedCount === 1 ? '1 person' : `${blockedCount} people`) : t('ยังไม่ได้บล็อกใคร', 'No one yet')}
           onClick={() => setSheet('blocked')}
         />
+      ),
+    },
+    {
+      key: 'install',
+      node: (
         <Row
           icon={Download}
           tint="bg-mint/50"
@@ -81,16 +93,23 @@ export function Settings() {
           value={install.installed ? t('ติดตั้งแล้ว', 'Installed') : t('เปิดไวจากหน้าจอโฮม', 'Opens fast from your home screen')}
           onClick={() => setSheet('install')}
         />
-        <Row
-          icon={Sparkles}
-          tint="bg-butter/50"
-          label={t('แนะนำตัวใหม่อีกรอบ', 'Redo my intro')}
-          value={t('เลือกเรื่องที่ชอบใหม่ทีละขั้น', 'Pick your interests again, step by step')}
-          to="/onboarding"
-        />
-        {demo && (
-          <Row icon={RotateCcw} tint="bg-lavender/40" label={t('รีเซ็ตเดโม', 'Reset demo')} value={t('เริ่มใหม่หมดทุกอย่าง', 'Start everything over')} onClick={() => setSheet('reset')} />
-        )}
+      ),
+    },
+    {
+      key: 'redo',
+      node: <Row icon={Sparkles} tint="bg-butter/50" label={t('แนะนำตัวใหม่อีกรอบ', 'Redo my intro')} value={t('เลือกเรื่องที่ชอบใหม่ทีละขั้น', 'Pick your interests again, step by step')} to="/onboarding" />,
+    },
+    ...(demo
+      ? [
+          {
+            key: 'reset',
+            node: <Row icon={RotateCcw} tint="bg-lavender/40" label={t('รีเซ็ตเดโม', 'Reset demo')} value={t('เริ่มใหม่หมดทุกอย่าง', 'Start everything over')} onClick={() => setSheet('reset')} />,
+          },
+        ]
+      : []),
+    {
+      key: 'about',
+      node: (
         <Row
           icon={Info}
           tint="bg-sky/50"
@@ -98,7 +117,19 @@ export function Settings() {
           value={t('หลักการ ข้อตกลง และความเป็นส่วนตัว', 'Principles, terms and privacy')}
           onClick={() => setSheet('about')}
         />
-      </ul>
+      ),
+    },
+  ]
+  return (
+    <Section tone="lavender" icon={<SlidersHorizontal size={18} strokeWidth={2.4} />} title={t('ตั้งค่า', 'Settings')}>
+      <ShowMore
+        items={rows}
+        initial={3}
+        getKey={(r) => r.key}
+        render={(r) => r.node}
+        listClassName="card divide-y divide-line/70 overflow-hidden rounded-3xl"
+        moreLabel={(n) => t(`ตั้งค่าอื่นๆ (อีก ${n})`, `More settings (${n} more)`)}
+      />
 
       <Sheet open={sheet === 'who'} onClose={close} title={t('ใครทักแชทหาเราได้บ้าง', 'Who can say hi to me')}>
         <WhoForm value={who} onChange={setWho} onDone={close} />
@@ -123,7 +154,7 @@ export function Settings() {
  */
 function LangRow() {
   return (
-    <li className="flex min-h-16 w-full items-center gap-3 px-4 py-3">
+    <div className="flex min-h-16 w-full items-center gap-3 px-4 py-3">
       <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-pink/45">
         <Languages size={19} aria-hidden />
       </span>
@@ -132,7 +163,7 @@ function LangRow() {
         <span className="block truncate text-sm text-ink-soft">{t('ภาษาที่ใช้ในแอป', 'The language the app speaks')}</span>
       </span>
       <LangToggle size="sm" />
-    </li>
+    </div>
   )
 }
 
@@ -164,7 +195,16 @@ function Row({
     </>
   )
   const cls = 'group flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-cream active:bg-cream-2'
-  return <li>{to ? <Link to={to} className={cls}>{inner}</Link> : <button type="button" onClick={onClick} className={cls}>{inner}</button>}</li>
+  // ShowMore puts each row in its own <li>
+  return to ? (
+    <Link to={to} className={cls}>
+      {inner}
+    </Link>
+  ) : (
+    <button type="button" onClick={onClick} className={cls}>
+      {inner}
+    </button>
+  )
 }
 
 function WhoForm({ value, onChange, onDone }: { value: Who; onChange: (w: Who) => void; onDone: () => void }) {
@@ -236,8 +276,8 @@ function ResetConfirm({ onClose }: { onClose: () => void }) {
         <Avatar color="lavender" size={52} face="wow" />
         <p className="text-ink">
           {t(
-            'แน่ใจนะ? แชท โพสต์ ห้องที่เข้า และโปรไฟล์ที่ลองแก้ไว้ จะกลับเป็นค่าเริ่มต้นทั้งหมด',
-            'Sure? Your chats, posts, joined rooms and any profile edits will all go back to the start',
+            'แน่ใจนะ? แชท ชวนเล่น ห้องที่เข้า และโปรไฟล์ที่ลองแก้ไว้ จะกลับเป็นค่าเริ่มต้นทั้งหมด',
+            'Sure? Your chats, invites, joined rooms and any profile edits will all go back to the start',
           )}
         </p>
       </div>
@@ -294,7 +334,7 @@ function About({ demo }: { demo: boolean }) {
         <div>
           <p className="font-display text-2xl font-semibold">moshimoshi</p>
           <p className="text-sm text-ink-soft">
-            {demo ? t('เวอร์ชันเดโม', 'Demo version') : t('เวอร์ชันแรก', 'First version')} · {t('โมชิโมชิ แปลว่า "ฮัลโหล"', '"moshi moshi" means "hello?" on the phone')}
+            {demo ? t('เวอร์ชันเดโม', 'Demo version') : t('เวอร์ชันแรก', 'First version')} · {t('โมชิโมชิ แปลว่า "ฮัลโหล"', '"moshi moshi" is a friendly Japanese "hello"')}
           </p>
         </div>
       </div>

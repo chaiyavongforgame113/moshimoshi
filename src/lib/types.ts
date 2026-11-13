@@ -202,7 +202,7 @@ export interface Chat {
 
 export type SignalLevel = 1 | 2 | 3 | 4 | 5
 
-export type MatchReasonKind = 'rareTag' | 'tag' | 'intent' | 'swap' | 'prompt' | 'time' | 'room' | 'style'
+export type MatchReasonKind = 'rareTag' | 'tag' | 'intent' | 'swap' | 'prompt' | 'time' | 'room' | 'style' | 'quiz'
 
 export interface MatchReason {
   kind: MatchReasonKind
@@ -218,14 +218,29 @@ export interface SharedTag {
   rare: boolean
 }
 
+/**
+ * What the wave is made of. Each part is 0..1 (shown as bars or dots, never as a percentage).
+ * The profile parts carry the score; `intent` is a small bonus on top, not a part.
+ */
 export interface MatchBreakdown {
-  /** each part 0..1 — shown as mini bars, never as a percentage */
+  /** shared interests and loves, rare ones weigh more */
   interests: number
-  intent: number
+  /** "จูนคลื่น" this-or-that picks in common (left out of the score until both have played) */
+  quiz: number
+  /** similar answers to profile prompts */
   story: number
+  /** online at the same times of day */
   rhythm: number
+  /** chat styles that fit (talker + listener, same pace…) */
+  style: number
+  /** shared rooms, and events of theirs I'm going to */
   context: number
+  /** bonus: both are inviting people to the same thing right now */
+  intent: number
 }
+
+/** One person's "จูนคลื่น" picks: question id → the side they picked. */
+export type WaveAnswers = Record<string, string>
 
 export interface MatchResult {
   userId: string
@@ -237,6 +252,8 @@ export interface MatchResult {
   reasons: MatchReason[]
   sharedTags: SharedTag[]
   breakdown: MatchBreakdown
+  /** parts one side has no data for yet: left out of the score (not counted as zero) and out of breakdown views */
+  missing: (keyof MatchBreakdown)[]
   icebreakers: string[]
 }
 

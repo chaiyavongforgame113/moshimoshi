@@ -1,17 +1,21 @@
 import { motion } from 'motion/react'
-import { MapPin, MessagesSquare, Pencil } from 'lucide-react'
-import { Button, Chip } from '@/components/ui'
-import { chatStyleLabel } from '@/data/tags'
+import { Clock3, MapPin, MessagesSquare, Pencil } from 'lucide-react'
+import { AllDayChip, Button, Chip } from '@/components/ui'
+import { ALL_SLOTS, chatStyleLabel, isAllDay, ONLINE_LABEL } from '@/data/tags'
 import { MochiStage, View3D } from '@/components/three'
 import { displayName, known, t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import { COLOR_NAME } from '@/pages/people/lib'
 import { ColorSwatches } from './ColorSwatches'
+import type { EditKind } from './EditSheets'
+
+const editLink = 'inline-flex h-11 items-center px-2 text-sm font-semibold text-ink underline-offset-4 hover:underline'
 
 /** My profile card: my own 3D mochi (tap to squish, swatches recolour it live). */
-export function MeHero({ onEdit, onEditStyle }: { onEdit: () => void; onEditStyle: () => void }) {
+export function MeHero({ onEdit }: { onEdit: (kind: EditKind) => void }) {
   const me = useMoshi((s) => s.me)
+  const slots = ALL_SLOTS.filter((s) => me.online.includes(s))
   const updateMe = useMoshi((s) => s.updateMe)
   return (
     <section aria-label={t('โปรไฟล์ของเรา', 'My profile')} className="relative grid items-center gap-3 lg:grid-cols-[minmax(0,17rem)_1fr] lg:gap-8">
@@ -49,11 +53,38 @@ export function MeHero({ onEdit, onEditStyle }: { onEdit: () => void; onEditStyl
               {chatStyleLabel(s)}
             </Chip>
           ))}
-          <button type="button" onClick={onEditStyle} className="inline-flex h-11 items-center px-2 text-sm font-semibold text-ink underline-offset-4 hover:underline">
+          <button
+            type="button"
+            onClick={() => onEdit('style')}
+            aria-label={me.chatStyle.length ? t('แก้สไตล์การคุย', 'Edit chat style') : undefined}
+            className={editLink}
+          >
             {me.chatStyle.length ? t('แก้', 'Edit') : t('เลือกสไตล์', 'Pick a style')}
           </button>
         </div>
-        <Button variant="secondary" icon={<Pencil size={16} aria-hidden />} onClick={onEdit} className="mt-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 inline-flex items-center gap-1.5 text-sm text-ink-soft">
+            <Clock3 size={15} aria-hidden /> {t('มักออนไลน์', 'Usually online')}
+          </span>
+          {isAllDay(slots) ? (
+            <AllDayChip />
+          ) : (
+            slots.map((s) => (
+              <Chip key={s} size="sm" color="sky">
+                {ONLINE_LABEL[s]}
+              </Chip>
+            ))
+          )}
+          <button
+            type="button"
+            onClick={() => onEdit('online')}
+            aria-label={slots.length ? t('แก้ช่วงที่มักออนไลน์', "Edit when I'm usually online") : undefined}
+            className={editLink}
+          >
+            {slots.length ? t('แก้', 'Edit') : t('เลือกช่วงเวลา', 'Pick times')}
+          </button>
+        </div>
+        <Button variant="secondary" icon={<Pencil size={16} aria-hidden />} onClick={() => onEdit('basics')} className="mt-3">
           {t('แก้ไขชื่อ แนะนำตัว และสี', 'Edit name, intro and color')}
         </Button>
       </div>

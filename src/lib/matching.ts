@@ -1,12 +1,13 @@
 // "สัญญาณถูกคอ" — a 5-level signal scale (like phone bars) instead of a % score.
-// Simplified client-side version of the scoring in docs/…-design-draft.md §5.6:
-// interests (IDF-weighted tags) + intent (similar or complementary roles)
-// + story (prompt answers) + rhythm (online hours) + context (shared rooms).
+// The wave comes from the profile, so nobody has to post to be found:
+// interests + loves (rare ones weigh more) · "จูนคลื่น" quiz · stories (prompt answers)
+// · online times · chat styles that fit · shared rooms and events.
+// Posts ("ชวนเล่น") only add a small bonus when both people are after the same thing.
 
 import { useCatalog } from '@/data/catalog'
-import { CATEGORY_LABEL, isAllDay, ONLINE_LABEL, OWN_PROMPT_ID, promptLabel, sameTag, TAG_BY_ID, tagKey, tagOf, tagsInText } from '@/data/tags'
+import { CATEGORY_LABEL, hasChatStyle, isAllDay, ONLINE_LABEL, OWN_PROMPT_ID, CHAT_STYLES, promptLabel, sameTag, TAG_BY_ID, tagKey, tagOf, tagsInText } from '@/data/tags'
 import { L, loc, t, texts } from './i18n'
-import { roomInLang } from './i18n/catalog'
+import { roomInLang, sessionInLang } from './i18n/catalog'
 import type {
   Intent,
   IntentRole,
@@ -17,6 +18,7 @@ import type {
   SharedTag,
   SignalLevel,
   User,
+  WaveAnswers,
 } from './types'
 
 export interface SignalMeta {
@@ -49,7 +51,7 @@ export const SIGNAL_LEVELS: SignalMeta[] = [
     level: 4,
     label: L('คอเดียวกัน', 'Kindred spirits'),
     short: L('คอเดียวกัน', 'Kindred'),
-    hint: L('ทั้งเรื่องที่ชอบและสิ่งที่กำลังหาไปทางเดียวกัน', "Same interests, and you're looking for the same things"),
+    hint: L('ทั้งเรื่องที่ชอบและจังหวะการคุยไปทางเดียวกัน', 'Same interests, and your rhythms line up too'),
   }),
   loc<SignalMeta>({
     level: 5,
@@ -77,13 +79,27 @@ const ROLE_COMPAT: Record<IntentRole, Record<IntentRole, number>> = {
   host: { peer: 0.9, seek: 0.8, offer: 0.2, swap: 0.1, host: 0.1 },
 }
 
-const WEIGHTS = { interests: 0.34, intent: 0.26, story: 0.16, rhythm: 0.12, context: 0.12 }
+/** The profile parts of the wave (they add up to 1). Tune here. */
+type Part = Exclude<keyof MatchBreakdown, 'intent'>
+const WEIGHTS: Record<Part, number> = { interests: 0.35, quiz: 0.25, story: 0.1, rhythm: 0.1, style: 0.1, context: 0.1 }
+/** The most a pair of matching posts can add on top of the profile score. */
+const INTENT_BONUS = 0.08
+/**
+ * Score → level. Measured on the demo people (scratch check, quiz not played yet): each person
+ * sees about 2–8 others at "ถูกคอ" or above, and level 5 stays rare. With the optional screens
+ * skipped (no loves, stories, online times or chat style) it's about the same (2–6 each), since
+ * a part either side left empty is left out of the score rather than counted as zero.
+ */
 const LEVEL_CUTS: [number, SignalLevel][] = [
-  [0.5, 5],
-  [0.38, 4],
-  [0.27, 3],
-  [0.16, 2],
+  [0.6, 5],
+  [0.45, 4],
+  [0.3, 3],
+  [0.18, 2],
 ]
+/** The highest a pair with nothing to talk about can reach (inside "พอคุยได้", under MIN_LEVEL). */
+const NO_TOPIC_CAP = 0.25
+/** Fewer common quiz picks than this tells us nothing yet. */
+const QUIZ_MIN = 3
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
 
@@ -135,13 +151,79 @@ function interestScore(a: User, b: User, stats: TagStats): { score: number; shar
   return { score: clamp01(Math.sqrt(dot / (norm(a) * norm(b)))), shared }
 }
 
-// ---------- intent (similar or complementary) ----------
+// ---------- "จูนคลื่น" this-or-that quiz ----------
+interface QuizFit {
+  score: number
+  same: number
+  asked: number
+}
+
+/** null until both have answered at least QUIZ_MIN of the same questions (then the part is left out, not zero). */
+function quizScore(a?: WaveAnswers, b?: WaveAnswers): QuizFit | null {
+  if (!a || !b) return null
+  let asked = 0
+  let same = 0
+  for (const [q, pick] of Object.entries(a)) {
+    const theirs = b[q]
+    if (theirs === undefined) continue
+    asked++
+    if (theirs === pick) same++
+  }
+  if (asked < QUIZ_MIN) return null
+  // two-way picks agree half the time by chance, so chance lands near an ordinary part (~0.33) and 8/8 at 1
+  return { score: clamp01((same / asked - 0.25) / 0.75), same, asked }
+}
+
+// ---------- chat styles ----------
+interface StyleFit {
+  score: number
+  /** the clearest reason the styles fit, if there is one worth saying */
+  why?: string
+}
+
+const TALKER = 'คุยเก่ง'
+const LISTENER = 'ฟังเก่ง'
+const FAST = 'ตอบไว'
+const SLOW = 'ตอบช้าแต่ตอบนะ'
+
+/** Both said this style (listed ones by name, typed ones case-insensitively). */
+const both = (a: User, b: User, style: string) => hasChatStyle(a.chatStyle, style) && hasChatStyle(b.chatStyle, style)
+
+function styleScore(a: User, b: User): StyleFit {
+  if (!a.chatStyle.length || !b.chatStyle.length) return { score: 0 }
+  const fits: { v: number; why?: () => string }[] = []
+  if ((hasChatStyle(a.chatStyle, TALKER) && hasChatStyle(b.chatStyle, LISTENER)) || (hasChatStyle(a.chatStyle, LISTENER) && hasChatStyle(b.chatStyle, TALKER)))
+    fits.push({ v: 1, why: () => t('คนหนึ่งคุยเก่ง อีกคนฟังเก่ง ลงตัวพอดี', 'One loves to talk, the other loves to listen. A perfect fit') })
+  if (both(a, b, FAST)) fits.push({ v: 0.8, why: () => t('ตอบไวทั้งคู่ คุยกันลื่นแน่', 'You both reply fast, so chats will flow') })
+  if (both(a, b, SLOW)) fits.push({ v: 0.7, why: () => t('ตอบช้าแต่ตอบเหมือนกัน ไม่มีใครต้องเร่งใคร', 'You both take your time replying, so nobody feels rushed') })
+  if (both(a, b, 'พิมพ์ยาว')) fits.push({ v: 0.7, why: () => t('ชอบพิมพ์ยาวๆ เหมือนกัน', 'You both love writing long messages') })
+  if (both(a, b, 'สายสติกเกอร์')) fits.push({ v: 0.6, why: () => t('สายสติกเกอร์ทั้งคู่', "You're both sticker people") })
+  if (both(a, b, TALKER)) fits.push({ v: 0.5, why: () => t('คุยเก่งทั้งคู่ ไม่มีเงียบแน่', 'You both love to talk, so no awkward silences') })
+  if (both(a, b, LISTENER)) fits.push({ v: 0.35 })
+  if (both(a, b, 'คุยเสียงได้')) fits.push({ v: 0.4 })
+  // styles people typed themselves ("อื่นๆ") that match
+  for (const s of a.chatStyle) {
+    if (CHAT_STYLES.includes(s) || !hasChatStyle(b.chatStyle, s)) continue
+    fits.push({ v: 0.5, why: () => t(`ชอบคุยแบบ "${s}" เหมือนกัน`, `You both chat "${s}"`) })
+  }
+  // fast meets slow: one waits, the other feels rushed
+  const clash = (hasChatStyle(a.chatStyle, FAST) && hasChatStyle(b.chatStyle, SLOW)) || (hasChatStyle(a.chatStyle, SLOW) && hasChatStyle(b.chatStyle, FAST))
+  const fit = 1 - fits.reduce((miss, f) => miss * (1 - f.v), 1)
+  const best = fits.filter((f) => f.why).sort((x, y) => y.v - x.v)[0]
+  return { score: clamp01(fit - (clash ? 0.3 : 0)), why: best?.why?.() }
+}
+
+// ---------- intent (similar or complementary) — the bonus ----------
 interface IntentHit {
   score: number
   mine?: Intent
   theirs: Intent
-  kind: 'similar' | 'host' | 'teach' | 'swap' | 'bio'
+  /** bio: their post is about something on my profile · mine-bio: my post is about something on theirs */
+  kind: 'similar' | 'host' | 'teach' | 'swap' | 'bio' | 'mine-bio'
 }
+
+/** Two posts that fit together (not just a post meeting a profile): the only kind that earns the bonus. */
+const postsMatch = (hit: IntentHit | null): hit is IntentHit => !!hit && hit.kind !== 'bio' && hit.kind !== 'mine-bio'
 
 function activitySim(a: Intent, b: Intent): number {
   if (sameTag(a.tagId, b.tagId)) return 1
@@ -194,17 +276,17 @@ function intentScore(mine: Intent[], theirs: Intent[], me: User, them: User): In
         best = { score, mine: m, theirs: t, kind }
       }
     }
-    // their intent vs my profile (I' in the doc): softer, used when I haven't posted a matching intent
+    // their post vs my profile: a reason to say hi, but no bonus (only matching posts add one)
     if (hasTag(me.tags, t.tagId)) {
       const score = 0.55 * (hasTag(me.loves, t.tagId) ? 1 : 0.8)
       if (!best || score > best.score) best = { score, theirs: t, kind: 'bio' }
     }
   }
-  // my intents vs their profile
+  // my posts vs their profile
   for (const m of mine) {
     if (hasTag(them.tags, m.tagId)) {
       const score = 0.5
-      if (!best || score > best.score) best = { score, mine: m, theirs: m, kind: 'bio' }
+      if (!best || score > best.score) best = { score, mine: m, theirs: m, kind: 'mine-bio' }
     }
   }
   return best
@@ -265,7 +347,7 @@ const ICEBREAKER_BY_CATEGORY: Record<string, (label: string, name: string) => st
 
 function buildIcebreakers(them: User, shared: SharedTag[], hit: IntentHit | null, matched?: PromptAnswer): string[] {
   const out: string[] = []
-  if (hit && hit.kind !== 'bio') out.push(t(`ทักเรื่อง "${hit.theirs.text}" ได้เลย เขากำลังหาอยู่พอดี`, `Say hi about "${hit.theirs.text}". They're looking for exactly that`))
+  if (postsMatch(hit)) out.push(t(`ทักเรื่อง "${hit.theirs.text}" ได้เลย เขากำลังหาอยู่พอดี`, `Say hi about "${hit.theirs.text}". They're looking for exactly that`))
   for (const s of shared.slice(0, 2)) {
     const f = ICEBREAKER_BY_CATEGORY[s.tag.category]
     if (f) out.push(f(s.tag.label, them.name))
@@ -276,50 +358,73 @@ function buildIcebreakers(them: User, shared: SharedTag[], hit: IntentHit | null
 }
 
 // ---------- main ----------
-export function matchUser(
-  me: User,
-  them: User,
-  myIntents: Intent[] = [],
-  population: User[] = [],
-  intents: Intent[] = [],
-): MatchResult {
+/** Optional inputs beyond the profiles. */
+export interface MatchExtras {
+  /** "จูนคลื่น" picks by user id (the quiz phase fills this; until then the quiz part is left out) */
+  quiz?: Record<string, WaveAnswers>
+  /** session ids I said "ไปด้วย" to: their events I'm going to count as shared context */
+  going?: string[]
+}
+
+/** Everything that depends on the whole community, worked out once per list. */
+interface Ctx {
+  stats: TagStats
+  intents: Intent[]
+  extras: MatchExtras
+}
+
+function makeCtx(me: User, population: User[], intents: Intent[], extras: MatchExtras): Ctx {
+  const pop = population.some((u) => u.id === me.id) ? population : [...population, me]
+  return { stats: tagStats(pop), intents, extras }
+}
+
+function scorePair(me: User, them: User, myIntents: Intent[], { stats, intents, extras }: Ctx): MatchResult {
+  const catalog = useCatalog.getState()
   const roomOf = (id: string) => {
-    const room = useCatalog.getState().rooms.find((r) => r.id === id)
+    const room = catalog.rooms.find((r) => r.id === id)
     return room && roomInLang(room)
   }
-  const pop = population.some((u) => u.id === me.id) ? population : [...population, me]
-  const stats = tagStats(pop)
   const theirIntents = intents.filter((i) => i.userId === them.id)
 
   const interests = interestScore(me, them, stats)
-  const hit = intentScore(myIntents, theirIntents, me, them)
+  const quiz = quizScore(extras.quiz?.[me.id], extras.quiz?.[them.id])
   const story = storyScore(me, them)
   const rhythm = jaccard(me.online, them.online)
+  const style = styleScore(me, them)
   const sharedRooms = me.rooms.filter((r) => {
     const room = them.rooms.includes(r) ? roomOf(r) : undefined
     return !!room && !room.isLobby
   })
-  const context = clamp01(sharedRooms.length * 0.5)
+  const going = extras.going ?? []
+  const theirEvents = catalog.sessions.filter((s) => s.hostId === them.id && going.includes(s.id)).map(sessionInLang)
+  const context = clamp01((sharedRooms.length + theirEvents.length) * 0.5)
+  const hit = intentScore(myIntents, theirIntents, me, them)
+  // only two matching posts earn the bonus; "their post is about something I like" is a reason, not a bonus
+  const intentFit = postsMatch(hit) ? hit.score : 0
 
   const breakdown: MatchBreakdown = {
     interests: interests.score,
-    intent: hit?.score ?? 0,
+    quiz: quiz?.score ?? 0,
     story: story.score,
     rhythm,
+    style: style.score,
     context,
+    intent: intentFit,
   }
 
-  // intent only counts when either side actually has one (missing ≠ negative)
-  const hasIntent = myIntents.length > 0 || theirIntents.length > 0
-  const w = { ...WEIGHTS, intent: hasIntent ? WEIGHTS.intent : 0 }
-  const wSum = w.interests + w.intent + w.story + w.rhythm + w.context
-  const score =
-    (w.interests * breakdown.interests +
-      w.intent * breakdown.intent +
-      w.story * breakdown.story +
-      w.rhythm * breakdown.rhythm +
-      w.context * breakdown.context) /
-    wSum
+  // a part one side has no data for yet is left out and the rest renormalized (missing ≠ negative),
+  // so skipping the optional onboarding screens never pushes anyone under MIN_LEVEL
+  const missing: Part[] = []
+  if (!quiz) missing.push('quiz')
+  if (!me.prompts.length || !them.prompts.length) missing.push('story')
+  if (!me.online.length || !them.online.length) missing.push('rhythm')
+  if (!me.chatStyle.length || !them.chatStyle.length) missing.push('style')
+  const parts = (Object.keys(WEIGHTS) as Part[]).filter((k) => !missing.includes(k))
+  const wSum = parts.reduce((s, k) => s + WEIGHTS[k], 0)
+  const profile = parts.reduce((s, k) => s + WEIGHTS[k] * breakdown[k], 0) / wSum
+  // same hours and a fitting chat style alone aren't "ถูกคอ": without one thing to talk about, stay below it
+  const topic = interests.shared.length > 0 || story.score > 0.25 || (quiz?.score ?? 0) >= 0.5 || intentFit > 0
+  const score = Math.min(clamp01(profile + INTENT_BONUS * intentFit), topic ? 1 : NO_TOPIC_CAP)
 
   const level: SignalLevel = LEVEL_CUTS.find(([cut]) => score >= cut)?.[1] ?? 1
   const meta = signalMeta(level)
@@ -345,6 +450,13 @@ export function matchUser(
       weight: 0.5 + 0.1 * common.length,
     })
   }
+  if (quiz && quiz.same / quiz.asked >= 0.6) {
+    reasons.push({
+      kind: 'quiz',
+      text: t(`จูนคลื่นตรงกัน ${quiz.same}/${quiz.asked} ข้อ`, `You picked the same side on ${quiz.same} of ${quiz.asked} this-or-thats`),
+      weight: 0.35 + 0.5 * quiz.score,
+    })
+  }
   if (hit) {
     const tag = tagOf(hit.theirs.tagId)?.label ?? ''
     const text =
@@ -360,9 +472,11 @@ export function matchUser(
           : hit.kind === 'host'
             ? t(`เขามีที่ว่างใน "${hit.theirs.text}"`, `They have a spot open in "${hit.theirs.text}"`)
             : hit.kind === 'bio'
-              ? t(`เขากำลังหาเพื่อนเรื่อง ${tag} ซึ่งเราก็ชอบ`, `They're looking for friends for ${tag}, and you're into it too`)
-              : t(`กำลังหาเพื่อน ${tag} เหมือนกัน`, `You're both looking for friends for ${tag}`)
-    reasons.push({ kind: hit.kind === 'swap' || hit.kind === 'teach' ? 'swap' : 'intent', text, weight: hit.score })
+              ? t(`เขากำลังชวนเล่น ${tag} ซึ่งเราก็ชอบ`, `They're inviting people for ${tag}, and you're into it too`)
+              : hit.kind === 'mine-bio'
+                ? t(`${them.name}ชอบ ${tag} ตรงกับที่เราชวนเล่นอยู่`, `${them.name} is into ${tag}, just what you're inviting people for`)
+                : t(`กำลังชวนเล่น ${tag} เหมือนกัน`, `You're both inviting people for ${tag}`)
+    reasons.push({ kind: hit.kind === 'swap' || hit.kind === 'teach' ? 'swap' : 'intent', text, weight: hit.kind === 'bio' || hit.kind === 'mine-bio' ? 0.45 * hit.score : 0.3 + 0.5 * hit.score })
   }
   const storyTopic = story.answer && promptLabel(story.answer)?.replace('…', '')
   if (story.score > 0.25 && storyTopic) {
@@ -372,16 +486,20 @@ export function matchUser(
       weight: story.score,
     })
   }
+  // only a strong overlap is worth saying: at least half of the times either is around
   const sharedSlots = me.online.filter((s) => them.online.includes(s))
-  if (sharedSlots.length) {
+  if (sharedSlots.length && rhythm >= 0.5) {
     const slots = sharedSlots.map((s) => ONLINE_LABEL[s])
     reasons.push({
       kind: 'time',
       text: isAllDay(sharedSlots)
         ? t('ออนไลน์ได้ทั้ง 24 ชั่วโมงเหมือนกัน', "You're both around 24/7")
         : t(`ออนไลน์${listTh(slots)}เหมือนกัน`, `You're both online ${listEn(slots).toLowerCase()}`),
-      weight: 0.3 + rhythm * 0.3,
+      weight: 0.25 + rhythm * 0.35,
     })
+  }
+  if (style.why && style.score >= 0.5) {
+    reasons.push({ kind: 'style', text: style.why, weight: 0.2 + 0.35 * style.score })
   }
   if (sharedRooms.length) {
     const names = sharedRooms.map((r) => roomOf(r)?.name)
@@ -391,10 +509,12 @@ export function matchUser(
       weight: 0.3 + context * 0.3,
     })
   }
-  const talker = (u: User) => u.chatStyle.includes('คุยเก่ง')
-  const listener = (u: User) => u.chatStyle.includes('ฟังเก่ง')
-  if ((talker(me) && listener(them)) || (listener(me) && talker(them))) {
-    reasons.push({ kind: 'style', text: t('คนหนึ่งคุยเก่ง อีกคนฟังเก่ง ลงตัวพอดี', 'One loves to talk, the other loves to listen. A perfect fit'), weight: 0.35 })
+  if (theirEvents.length) {
+    reasons.push({
+      kind: 'room',
+      text: t(`เราจะไปอีเวนต์ "${theirEvents[0].title}" ที่เขาจัด`, `You're going to their event "${theirEvents[0].title}"`),
+      weight: 0.45,
+    })
   }
   reasons.sort((x, y) => y.weight - x.weight)
 
@@ -407,18 +527,32 @@ export function matchUser(
     reasons,
     sharedTags: interests.shared,
     breakdown,
+    missing,
     icebreakers: buildIcebreakers(them, interests.shared, hit, story.answer),
   }
+}
+
+/** One person's signal with me (a profile page). */
+export function matchUser(
+  me: User,
+  them: User,
+  myIntents: Intent[] = [],
+  population: User[] = [],
+  intents: Intent[] = [],
+  extras: MatchExtras = {},
+): MatchResult {
+  return scorePair(me, them, myIntents, makeCtx(me, population, intents, extras))
 }
 
 /**
  * Everyone but me, best signal first. Returns the whole population on purpose: a profile
  * page needs a signal for anyone. Lists that suggest people go through onWavelength().
  */
-export function matchAll(me: User, myIntents: Intent[] = [], population: User[] = [], intents: Intent[] = []): MatchResult[] {
+export function matchAll(me: User, myIntents: Intent[] = [], population: User[] = [], intents: Intent[] = [], extras: MatchExtras = {}): MatchResult[] {
+  const ctx = makeCtx(me, population, intents, extras)
   return population
     .filter((u) => u.id !== me.id)
-    .map((u) => matchUser(me, u, myIntents, population, intents))
+    .map((u) => scorePair(me, u, myIntents, ctx))
     .sort((a, b) => b.score - a.score)
 }
 
@@ -434,12 +568,15 @@ export function onWavelength(matches: MatchResult[], min: SignalLevel = MIN_LEVE
   return matches.filter((m) => m.level >= min)
 }
 
+/** Every part of the wave, in the order they're shown (`intent` last: it's the bonus). */
 export const BREAKDOWN_LABEL: Readonly<Record<keyof MatchBreakdown, string>> = texts({
   interests: L('เรื่องที่ชอบ', 'Interests'),
-  intent: L('สิ่งที่กำลังหา', 'Looking for'),
+  quiz: L('จูนคลื่น', 'This or that'),
   story: L('เรื่องเล่า', 'Stories'),
-  rhythm: L('ช่วงเวลา', 'Online times'),
-  context: L('ห้องที่อยู่', 'Rooms'),
+  rhythm: L('ช่วงเวลาออนไลน์', 'Online times'),
+  style: L('สไตล์การคุย', 'Chat style'),
+  context: L('ห้องและอีเวนต์', 'Rooms & events'),
+  intent: L('ชวนเล่นเรื่องเดียวกัน (โบนัส)', 'Same invites (bonus)'),
 })
 
 export { CATEGORY_LABEL }

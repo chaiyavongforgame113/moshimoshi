@@ -1,7 +1,7 @@
 // Onboarding draft: what the visitor is building step by step, plus the
 // rules that turn it into a profile, a first intent and room picks.
 import type { MochiAccessory, MochiExpression } from '@/components/three'
-import { OWN_PROMPT_ID, PROMPTS, tagOf } from '@/data/tags'
+import { OWN_PROMPT_ID, PROMPTS, tagLabelTh, tagOf } from '@/data/tags'
 import { known, t } from '@/lib/i18n'
 import type { Intent, IntentTemplate, MochiColor, OnlineSlot, PromptAnswer, Room, TagCategory, User } from '@/lib/types'
 
@@ -19,7 +19,7 @@ export interface Draft {
   tags: string[]
   /** up to 3 starred tags ("รักมาก"), always a subset of tags */
   loves: string[]
-  /** first answer is required, the second one optional */
+  /** onboarding asks for one answer (skippable); a second one from an earlier profile rides along untouched */
   prompts: PromptAnswer[]
   intent: IntentTemplate | null
   /** topic for the "คุยเรื่อง…" template */
@@ -88,22 +88,59 @@ export interface StepCheck {
   need?: string
 }
 
-export function validate(step: number, d: Draft): StepCheck {
-  switch (step) {
-    case 0: {
-      if (!textLength(d.name)) return { ok: false, need: t('บอกชื่อเล่นให้เรารู้จักหน่อยนะ', 'Tell me your nickname first') }
-      return { ok: true }
-    }
-    case 2: {
+// ------------------------------------------------------------------ the screens, one question each
+/**
+ * The order people meet them in. "topic" is the second half of "intent": it only shows when they
+ * picked "คุยเรื่อง…" and counts as the same question in the progress ("6/10").
+ */
+export const SCREEN_ORDER = ['name', 'rules', 'mochi', 'likes', 'loves', 'intent', 'topic', 'online', 'style', 'story', 'rooms', 'done'] as const
+export type ScreenKey = (typeof SCREEN_ORDER)[number]
+
+/** 1-based question number for "3/10" (topic shares intent's; done is past the end). */
+export const QUESTION_OF: Record<ScreenKey, number> = {
+  name: 1,
+  rules: 2,
+  mochi: 3,
+  likes: 4,
+  loves: 5,
+  intent: 6,
+  topic: 6,
+  online: 7,
+  style: 8,
+  story: 9,
+  rooms: 10,
+  done: 10,
+}
+export const QUESTIONS = 10
+
+/** The screens this draft walks through. */
+export const screenFlow = (d: Draft): ScreenKey[] => SCREEN_ORDER.filter((k) => k !== 'topic' || (d.intent === 'talk' && d.tags.length > 0))
+
+/** Skippable ("ข้ามไปก่อน"): skipping moves on without asking for an answer. Someone editing a finished profile may skip "intent" too. */
+export const isOptional = (screen: ScreenKey, editing: boolean) =>
+  screen === 'loves' || screen === 'online' || screen === 'style' || screen === 'story' || (editing && screen === 'intent')
+
+/** Whether Next may move on. Optional screens ask for an answer here; leaving them empty is what Skip is for. */
+export function validate(screen: ScreenKey, d: Draft): StepCheck {
+  switch (screen) {
+    case 'name':
+      return textLength(d.name) ? { ok: true } : { ok: false, need: t('บอกชื่อเล่นให้เรารู้จักหน่อยนะ', 'Tell me your nickname first') }
+    case 'likes': {
       const left = MIN_TAGS - d.tags.length
       return left > 0 ? { ok: false, need: t(`เลือกอีก ${left} อย่างนะ`, `Pick ${left} more`) } : { ok: true }
     }
-    case 3: {
-      const [a, b] = d.prompts
-      const noQuestion = (p?: PromptAnswer) => p?.promptId === OWN_PROMPT_ID && !textLength(p.question ?? '')
-      if (noQuestion(a)) return { ok: false, need: t('พิมพ์คำถามของเราก่อนนะ', 'Write your question first') }
-      if (b && textLength(b.text) > 0 && noQuestion(b)) return { ok: false, need: t('ข้อสองยังไม่มีคำถามเลยนะ', 'The second one needs a question') }
-      const first = textLength(d.prompts[0]?.text ?? '')
+    case 'loves':
+      return d.loves.length ? { ok: true } : { ok: false, need: t('ติดดาวสักอย่างนะ', 'Star one first') }
+    case 'intent':
+      return d.intent ? { ok: true } : { ok: false, need: t('เลือก 1 อย่างนะ', 'Pick one first') }
+    case 'online':
+      return d.online.length ? { ok: true } : { ok: false, need: t('เลือกสักช่วงนะ', 'Pick a time first') }
+    case 'style':
+      return d.chatStyle.length ? { ok: true } : { ok: false, need: t('เลือกสักแบบนะ', 'Pick a style first') }
+    case 'story': {
+      const a = d.prompts[0]
+      if (a?.promptId === OWN_PROMPT_ID && !textLength(a.question ?? '')) return { ok: false, need: t('พิมพ์คำถามของเราก่อนนะ', 'Write your question first') }
+      const first = textLength(a?.text ?? '')
       if (first < STORY_MIN) {
         const left = STORY_MIN - first
         return {
@@ -113,12 +150,9 @@ export function validate(step: number, d: Draft): StepCheck {
             : t('เล่าให้ฟังสักนิดนะ', 'Tell me a little something'),
         }
       }
-      const second = d.prompts[1] ? textLength(d.prompts[1].text) : 0
-      if (second > 0 && second < STORY_MIN) return { ok: false, need: t('ข้อสองยังสั้นไปนิดนะ', 'The second one is a bit short') }
-      if (b?.promptId === OWN_PROMPT_ID && textLength(b.question ?? '') > 0 && second === 0) return { ok: false, need: t('ข้อสองยังไม่ได้ตอบเลยนะ', 'The second one needs an answer') }
       return { ok: true }
     }
-    case 5:
+    case 'rooms':
       return d.rooms.length ? { ok: true } : { ok: false, need: t('เลือกอย่างน้อย 1 ห้องนะ', 'Pick at least 1 room') }
     default:
       return { ok: true }
@@ -232,8 +266,9 @@ function templateIntent(d: Draft, province: string, rooms: Room[]): IntentDraft 
         text: t(`สอนภาษาไทยให้ได้ อยากฝึก${label(tagId)} แลกกันไหม`, `I can teach Thai and want to practice ${label(tagId)}. Swap?`),
         when: 'anytime',
         mode: 'online',
-        give: t('ภาษาไทย', 'Thai'),
-        want: label(tagId),
+        // saved Thai like the ชวนเล่น flow's languages ("ภาษาญี่ปุ่น"), shown with known()
+        give: 'ภาษาไทย',
+        want: tagLabelTh(tagId),
         roomId: 'lang',
       }
     }

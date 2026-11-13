@@ -42,8 +42,9 @@ function MoshiForm({ user, match, onSend }: { user: User; match: MatchResult; on
       })
     return list
   }, [match.icebreakers, user.name])
-  const [text, setText] = useState('')
-  const [picked, setPicked] = useState<number | null>(null)
+  // starts with the same ready line the profile suggests (openers[0]), so one tap sends it, or edit away
+  const [text, setText] = useState(() => openers[0].text.slice(0, MAX))
+  const [picked, setPicked] = useState<number | null>(0)
   // the button stays live while the sheet animates out: one hello per open
   const sent = useRef(false)
 
@@ -144,8 +145,8 @@ function MoshiForm({ user, match, onSend }: { user: User; match: MatchResult; on
       <p className="flex items-start gap-2.5 rounded-2xl bg-mint/30 p-3 text-sm text-ink">
         <ShieldCheck size={18} className="mt-0.5 shrink-0" aria-hidden />
         {t(
-          'นี่คือการส่งข้อความทักไปในแชท ไม่ใช่การโทรนะ เขาจะเห็นโปรไฟล์กับข้อความของเรา ถ้ากดตอบรับถึงจะเริ่มแชทกันได้ ไม่มีใครต้องฝืนใจ',
-          "This sends a chat message, not a call. They'll see your profile and your hello, and the chat opens only once they accept, so nobody feels pressured.",
+          'ข้อความทักจะไปอยู่ในแชทของเขา เขาจะเห็นโปรไฟล์กับข้อความของเรา ถ้ากดตอบรับถึงจะเริ่มแชทกันได้ ไม่มีใครต้องฝืนใจ',
+          "Your hello lands in their chats. They'll see your profile and your message, and the chat opens only once they accept, so nobody feels pressured.",
         )}
       </p>
 

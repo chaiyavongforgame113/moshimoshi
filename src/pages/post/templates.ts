@@ -24,6 +24,8 @@ import type { IntentRole, IntentTemplate, IntentWhen, MochiColor } from '@/lib/t
 export interface TemplateDef {
   key: IntentTemplate
   label: string
+  /** one line under the label on the big pick card */
+  hint: string
   Icon: LucideIcon
   color: MochiColor
   role: IntentRole
@@ -32,15 +34,13 @@ export interface TemplateDef {
   example: string
   /** activity tags suggested first in the picker */
   tags: string[]
-  /** placeholders for give / want */
-  give?: string
-  want?: string
 }
 
 export const TEMPLATES: TemplateDef[] = [
   loc<TemplateDef>({
     key: 'play',
     label: L('เล่นเกมด้วยกัน', 'Play games together'),
+    hint: L('ลงเกมด้วยกัน จะแรงค์หรือชิลก็ได้', 'Squad up, ranked or just chill'),
     Icon: Gamepad2,
     color: 'lavender',
     role: 'peer',
@@ -52,6 +52,7 @@ export const TEMPLATES: TemplateDef[] = [
   loc<TemplateDef>({
     key: 'talk',
     label: L('คุยเรื่อง…', 'Talk about…'),
+    hint: L('คุยเรื่องที่ชอบกับคนที่อินเหมือนกัน', 'Geek out with someone just as into it'),
     Icon: MessagesSquare,
     color: 'pink',
     role: 'peer',
@@ -63,6 +64,7 @@ export const TEMPLATES: TemplateDef[] = [
   loc<TemplateDef>({
     key: 'lang',
     label: L('ฝึก / แลกภาษา', 'Practice / swap languages'),
+    hint: L('หาคู่ฝึกพูด สอนกันแลกกัน', 'Find a partner to practice and swap with'),
     Icon: Languages,
     color: 'sky',
     role: 'swap',
@@ -70,12 +72,11 @@ export const TEMPLATES: TemplateDef[] = [
     when: 'anytime',
     example: L('อยากฝึกญี่ปุ่น N4 สอนไทยแลกได้ ผิดได้ ขำได้', 'Practicing Japanese N4, happy to teach Thai back. Mistakes and laughs welcome'),
     tags: ['japanese', 'english', 'korean', 'thai'],
-    give: L('เช่น ภาษาไทย', 'e.g. Thai'),
-    want: L('เช่น ภาษาญี่ปุ่น', 'e.g. Japanese'),
   }),
   loc<TemplateDef>({
     key: 'event',
     label: L('ไปงาน / คอนเสิร์ต', 'Events / concerts'),
+    hint: L('มีเพื่อนไปด้วย ไม่ต้องไปคนเดียว', 'Got a buddy, no more going solo'),
     Icon: Ticket,
     color: 'peach',
     role: 'peer',
@@ -87,6 +88,7 @@ export const TEMPLATES: TemplateDef[] = [
   loc<TemplateDef>({
     key: 'newbie',
     label: L('มือใหม่หาเพื่อน', 'Newbie seeks buddy'),
+    hint: L('เพิ่งเริ่มอะไรใหม่ หาเพื่อนเริ่มไปด้วยกัน', 'Just starting out? Learn it together'),
     Icon: Sprout,
     color: 'mint',
     role: 'seek',
@@ -94,12 +96,11 @@ export const TEMPLATES: TemplateDef[] = [
     when: 'weekend',
     example: L('อยากเริ่มวิ่ง หาคนวิ่งชิลๆ ไม่เร็ว คุยไปวิ่งไป', 'Want to start running. Looking for a slow, chatty running buddy'),
     tags: ['running', 'guitar', 'hiking', 'baking', 'drawing', 'crochet', 'photography'],
-    give: L('เช่น วิ่งมา 3 ปี ให้คำแนะนำได้', 'e.g. 3 years of running, happy to give tips'),
-    want: L('เช่น เพื่อนวิ่งชิลๆ', 'e.g. a chill running buddy'),
   }),
   loc<TemplateDef>({
     key: 'study',
     label: L('ทำงาน / ติวด้วยกัน', 'Work / study together'),
+    hint: L('นั่งทำงานหรือติวไปด้วยกัน ไม่เหงา', 'Work or study side by side'),
     Icon: NotebookPen,
     color: 'mint',
     role: 'peer',
@@ -111,6 +112,7 @@ export const TEMPLATES: TemplateDef[] = [
   loc<TemplateDef>({
     key: 'moved',
     label: L('เพิ่งย้ายมา', 'Just moved here'),
+    hint: L('มาอยู่ที่ใหม่ อยากมีเพื่อนแถวนี้', 'New in town? Meet people nearby'),
     Icon: Luggage,
     color: 'butter',
     role: 'peer',
@@ -122,6 +124,7 @@ export const TEMPLATES: TemplateDef[] = [
   loc<TemplateDef>({
     key: 'listen',
     label: L('อยากมีคนคุยด้วย', 'Want someone to talk to'),
+    hint: L('อยากมีใครสักคนคุยเบาๆ ด้วย', 'A gentle chat with someone kind'),
     Icon: Ear,
     color: 'peach',
     role: 'peer',
@@ -129,8 +132,6 @@ export const TEMPLATES: TemplateDef[] = [
     when: 'tonight',
     example: L('อยากมีเพื่อนคุยก่อนนอน เล่าเรื่องวันนี้ให้กันฟัง', 'Want a bedtime chat buddy to swap stories about our day'),
     tags: ['listening', 'journaling', 'nightowl', 'selfhelp'],
-    give: L('เช่น รับฟังได้ ไม่ตัดสิน', "e.g. I'll listen, no judgment"),
-    want: L('เช่น คนรับฟังเรื่องงาน', 'e.g. someone to hear me out about work'),
   }),
 ]
 
@@ -139,17 +140,16 @@ export const TEMPLATE_BY_KEY = Object.fromEntries(TEMPLATES.map((t) => [t.key, t
 export interface RoleDef {
   key: IntentRole
   label: string
-  hint: string
   Icon: LucideIcon
   color: MochiColor
 }
 
 export const ROLES: RoleDef[] = [
-  loc<RoleDef>({ key: 'peer', label: L('ทำด้วยกัน', 'Do it together'), hint: L('หาเพื่อนมาทำเรื่องเดียวกัน สนุกไปด้วยกัน', 'Find friends into the same thing and have fun together'), Icon: Users, color: 'mint' }),
-  loc<RoleDef>({ key: 'seek', label: L('อยากหาคนช่วย', 'Looking for help'), hint: L('อยากเริ่มหรืออยากเก่งขึ้น หาคนที่แนะนำได้', 'Starting out or leveling up? Find someone with tips'), Icon: HandHelping, color: 'sky' }),
-  loc<RoleDef>({ key: 'offer', label: L('ช่วยคนอื่นได้', 'Happy to help'), hint: L('มีเรื่องที่ถนัด ยินดีแบ่งปันหรือพามือใหม่', 'Good at something? Share it or show a newbie the ropes'), Icon: Lightbulb, color: 'butter' }),
-  loc<RoleDef>({ key: 'swap', label: L('แลกกัน', 'Swap'), hint: L('เราให้อย่างหนึ่ง แลกกับอีกอย่างที่อยากได้', 'Give one thing, get something you want in return'), Icon: Repeat2, color: 'lavender' }),
-  loc<RoleDef>({ key: 'host', label: L('มีที่ว่าง', 'Spots open'), hint: L('เปิดตี้หรือวงไว้แล้ว ยังขาดเพื่อนอีกไม่กี่คน', 'Your squad is set, just a few spots left'), Icon: UserPlus, color: 'pink' }),
+  loc<RoleDef>({ key: 'peer', label: L('ทำด้วยกัน', 'Do it together'), Icon: Users, color: 'mint' }),
+  loc<RoleDef>({ key: 'seek', label: L('อยากหาคนช่วย', 'Looking for help'), Icon: HandHelping, color: 'sky' }),
+  loc<RoleDef>({ key: 'offer', label: L('ช่วยคนอื่นได้', 'Happy to help'), Icon: Lightbulb, color: 'butter' }),
+  loc<RoleDef>({ key: 'swap', label: L('แลกกัน', 'Swap'), Icon: Repeat2, color: 'lavender' }),
+  loc<RoleDef>({ key: 'host', label: L('มีที่ว่าง', 'Spots open'), Icon: UserPlus, color: 'pink' }),
 ]
 
 export const ROLE_BY_KEY = Object.fromEntries(ROLES.map((r) => [r.key, r])) as Record<IntentRole, RoleDef>
@@ -165,6 +165,17 @@ export const WHENS: WhenDef[] = [
   loc<WhenDef>({ key: 'weekend', label: L('สุดสัปดาห์', 'Weekend'), Icon: CalendarDays }),
   loc<WhenDef>({ key: 'anytime', label: L('เมื่อไหร่ก็ได้', 'Anytime'), Icon: InfinityIcon }),
   loc<WhenDef>({ key: 'dated', label: L('ระบุวัน', 'Pick a date'), Icon: CalendarClock }),
+]
+
+/** "ตอนนี้เลย / Right now": saved as when 'tonight' with this Thai label (the database only knows tonight | weekend | anytime | dated) */
+export const NOW_LABEL = 'ตอนนี้เลย'
+
+/** One-tap languages on a language post: the catalog tag, and the name saved in give / want (Thai, shown with known()). */
+export const LANGS: { tag: string; value: string }[] = [
+  { tag: 'thai', value: 'ภาษาไทย' },
+  { tag: 'english', value: 'ภาษาอังกฤษ' },
+  { tag: 'japanese', value: 'ภาษาญี่ปุ่น' },
+  { tag: 'korean', value: 'ภาษาเกาหลี' },
 ]
 
 /** stored values: keep Thai, show with known() */

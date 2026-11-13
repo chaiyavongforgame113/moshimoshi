@@ -1,16 +1,14 @@
 import { motion, useReducedMotion } from 'motion/react'
-import { House, Plus, Radio, Sparkle } from 'lucide-react'
+import { House, Plus, Sparkle } from 'lucide-react'
 import { useMemo } from 'react'
 import { MochiStage, View3D } from '@/components/three'
 import { Button, ButtonLink } from '@/components/ui'
 import { MOCHI } from '@/lib/colors'
 import { t } from '@/lib/i18n'
-import { signalMeta } from '@/lib/matching'
 import { fadeUp, pop, stagger } from '@/lib/motion'
-import { useMoshi } from '@/lib/store'
 import type { Intent } from '@/lib/types'
 import { useMatchesFor } from '@/pages/home/matches'
-import { IntentCard } from './IntentCard'
+import { LikelyMatches } from './LikelyMatches'
 
 const SPARKS = [
   { left: '6%', top: '18%', size: 22, color: MOCHI.butter.shade, delay: 0.2 },
@@ -19,12 +17,11 @@ const SPARKS = [
   { left: '92%', top: '62%', size: 24, color: MOCHI.lavender.shade, delay: 0.45 },
 ]
 
-/** After posting: the mascot cheers, the "signal" goes out, and the next step is one tap away. */
+/** After posting: Mochi cheers, then up to 3 people on this post's wavelength to invite, and the way home. */
 export function PostSuccess({ intent, onAgain }: { intent: Intent; onAgain: () => void }) {
-  const me = useMoshi((s) => s.me)
   const reduce = useReducedMotion()
   const mine = useMemo(() => [intent], [intent])
-  const strong = useMatchesFor(mine).filter((r) => r.level >= 3).length
+  const matches = useMatchesFor(mine)
 
   return (
     <motion.div variants={stagger(0.09)} initial="hidden" animate="show" className="mx-auto flex max-w-xl flex-col items-center pt-2 text-center">
@@ -48,50 +45,25 @@ export function PostSuccess({ intent, onAgain }: { intent: Intent; onAgain: () =
         ))}
       </div>
 
-      {/* ringing phone badge = the signal going out */}
-      <motion.span variants={pop} className="relative -mt-2 inline-flex size-14 items-center justify-center rounded-full bg-coral text-ink shadow-[var(--shadow-puffy)]" aria-hidden>
-        {!reduce &&
-          [0, 1].map((i) => (
-            <motion.span
-              key={i}
-              className="absolute inset-0 rounded-full border-2 border-coral"
-              animate={{ scale: [1, 1.9], opacity: [0.7, 0] }}
-              transition={{ duration: 1.6, repeat: Infinity, delay: i * 0.8, ease: 'easeOut' }}
-            />
-          ))}
-        <motion.span animate={reduce ? undefined : { rotate: [0, -14, 14, -10, 10, 0] }} transition={{ duration: 0.7, repeat: Infinity, repeatDelay: 1.4 }}>
-          <Radio size={24} strokeWidth={2.4} />
-        </motion.span>
-      </motion.span>
-
-      <motion.h2 variants={pop} className="mt-4 font-display text-3xl font-semibold sm:text-4xl" role="status">
-        {t('โพสต์แล้ว! ส่งสัญญาณออกไปแล้วนะ', "Posted! Your signal's out there")}
+      <motion.h2 variants={pop} className="mt-4 font-display text-3xl font-semibold text-balance sm:text-4xl" role="status">
+        {t('ชวนแล้ว! ส่งคำชวนออกไปแล้วนะ', "Done! Your invite's out there")}
       </motion.h2>
-      <motion.p variants={fadeUp} className="mt-2 max-w-md text-ink-soft">
-        {t('เพื่อนๆ ที่คลื่นตรงกันจะเห็นโพสต์นี้', 'People on your wavelength will see this post.')}
-        {strong > 0
-          ? t(
-              ` ตอนนี้มี ${strong} คนที่สัญญาณ "${signalMeta(3).label}" ขึ้นไปรออยู่`,
-              ` Right now ${strong} ${strong === 1 ? 'person is' : 'people are'} at "${signalMeta(3).label}" or higher.`,
-            )
-          : t(' เดี๋ยวโมชิคอยดูให้นะ ถ้ามีใครตรงจะบอกทันที', ' Mochi will keep watch and tell you the moment someone matches.')}
+      <motion.p variants={fadeUp} className="mt-2 mb-1 max-w-md text-ink-soft">
+        {matches.length
+          ? t('มีคนที่คลื่นตรงกับเรื่องนี้รออยู่ ลองชวนมาเล่นด้วยกันเลย', 'Some people on this wavelength are around. Invite them to join in')
+          : t('เพื่อนๆ ที่คลื่นตรงกันจะเห็นโพสต์นี้ ถ้ามีใครตรงโมชิจะบอกทันที', "People on your wavelength will see this post. Mochi will tell you the moment someone matches")}
       </motion.p>
 
-      <motion.div variants={fadeUp} className="mt-5 w-full text-left">
-        <IntentCard intent={intent} me={me} className="shadow-[var(--shadow-lift)]" />
+      <motion.div variants={fadeUp} className="w-full">
+        <LikelyMatches intent={intent} matches={matches} />
       </motion.div>
 
-      <motion.div variants={fadeUp} className="mt-6 flex w-full flex-col gap-3 sm:flex-row sm:justify-center">
-        <ButtonLink to="/app/people" size="lg" icon={<Radio size={20} />} className="sm:min-w-52">
-          {t('ดูคนที่ตรงกัน', 'See your matches')}
+      <motion.div variants={fadeUp} className="mt-6 flex w-full flex-col items-center gap-2">
+        <ButtonLink to="/app" size="lg" variant={matches.length ? 'secondary' : 'primary'} icon={<House size={20} aria-hidden />} className="w-full sm:w-auto sm:min-w-56">
+          {t('กลับหน้าหลัก', 'Back home')}
         </ButtonLink>
-        <ButtonLink to="/app" size="lg" variant="secondary" icon={<House size={20} />} className="sm:min-w-44">
-          {t('กลับหน้าแรก', 'Back home')}
-        </ButtonLink>
-      </motion.div>
-      <motion.div variants={fadeUp} className="mt-2">
-        <Button variant="ghost" icon={<Plus size={18} />} onClick={onAgain}>
-          {t('โพสต์อีกใบ', 'Post another')}
+        <Button variant="ghost" icon={<Plus size={18} aria-hidden />} onClick={onAgain}>
+          {t('ชวนเล่นอีกเรื่อง', 'Start another invite')}
         </Button>
       </motion.div>
     </motion.div>

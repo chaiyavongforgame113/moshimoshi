@@ -1,5 +1,6 @@
 import { Pencil } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { KineticText, Reveal } from '@/components/motion'
 import { IconButton, PageHeader } from '@/components/ui'
 import { useDataMode, useDataReady } from '@/data/hooks'
@@ -10,9 +11,30 @@ import { EditSheets, type EditKind } from './EditSheets'
 import { MeHero } from './MeHero'
 import { MyIntents, MyPrompts, MyRooms, MyTags } from './MySections'
 import { Settings } from './Settings'
+import { EDIT_KINDS } from './wave'
+import { WaveClarity } from './WaveClarity'
+
+const isEditKind = (v: string | null): v is EditKind => EDIT_KINDS.includes(v as EditKind)
 
 export default function MePage() {
-  const [edit, setEdit] = useState<EditKind | null>(null)
+  // which edit sheet is open, and at which question; ?edit=tags&step=1 (from home or the People tab) opens one
+  const [params, setParams] = useSearchParams()
+  const [edit, setEdit] = useState<{ kind: EditKind; step: number } | null>(null)
+  // open the linked sheet, then drop the link so Back or a reload doesn't open it again
+  useEffect(() => {
+    const kind = params.get('edit')
+    if (kind === null) return
+    if (isEditKind(kind)) setEdit({ kind, step: Math.max(0, Number(params.get('step')) || 0) })
+    setParams(
+      (p) => {
+        p.delete('edit')
+        p.delete('step')
+        return p
+      },
+      { replace: true },
+    )
+  }, [params, setParams])
+  const open = useCallback((kind: EditKind, step = 0) => setEdit({ kind, step }), [])
   const closeEdit = useCallback(() => setEdit(null), [])
   const live = useDataMode() === 'live'
   const ready = useDataReady()
@@ -23,17 +45,20 @@ export default function MePage() {
         title={<KineticText text={t('โปรไฟล์ของเรา', 'My profile')} />}
         subtitle={t('เพื่อนๆ จะเห็นหน้าของเราแบบนี้', 'This is how friends see you')}
         action={
-          <IconButton label={t('แก้ไขโปรไฟล์', 'Edit profile')} onClick={() => setEdit('basics')}>
+          <IconButton label={t('แก้ไขโปรไฟล์', 'Edit profile')} onClick={() => open('basics')}>
             <Pencil size={18} />
           </IconButton>
         }
       />
-      <MeHero onEdit={() => setEdit('basics')} onEditStyle={() => setEdit('style')} />
+      <MeHero onEdit={open} />
       <Reveal>
-        <MyTags onEdit={() => setEdit('tags')} />
+        <WaveClarity onEdit={open} />
       </Reveal>
       <Reveal>
-        <MyPrompts />
+        <MyTags onEdit={() => open('tags')} />
+      </Reveal>
+      <Reveal>
+        <MyPrompts onEdit={() => open('stories')} />
       </Reveal>
       <Reveal>
         <MyIntents />
@@ -49,7 +74,7 @@ export default function MePage() {
           <Account />
         </Reveal>
       )}
-      <EditSheets open={edit} onClose={closeEdit} />
+      <EditSheets open={edit?.kind ?? null} step={edit?.step} onClose={closeEdit} />
     </div>
   )
 }

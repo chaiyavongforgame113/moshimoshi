@@ -1,29 +1,45 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { Star } from 'lucide-react'
-import { useId, useMemo, useState, type FormEvent } from 'react'
-import { Avatar, Button, Chip, leaveField, OwnOption, Sheet, TagChip } from '@/components/ui'
-import { CATEGORY_LABEL, CHAT_STYLES, chatStyleLabel, hasChatStyle, isOwnTag, MAX_OWN_TAGS, OWN_STYLE_MAX, OWN_TAG_MAX, ownChatStyle, ownTagId, sameTag, tagOf, TAGS } from '@/data/tags'
-import { t } from '@/lib/i18n'
+import { Sparkles } from 'lucide-react'
+import { useId, useState } from 'react'
+import { Avatar, Button, Chip, leaveField, OwnOption, Sheet, Wizard } from '@/components/ui'
+import { CHAT_STYLES, chatStyleLabel, hasChatStyle, isAllDay, ONLINE_LABEL, OWN_STYLE_MAX, ownChatStyle } from '@/data/tags'
+import { displayName, t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
-import type { MochiColor, TagCategory } from '@/lib/types'
+import type { MochiColor, OnlineSlot } from '@/lib/types'
 import { MAX_STYLES } from '@/pages/onboarding/model'
+import { SLOT_OPTIONS } from '@/pages/onboarding/options'
 import { ColorSwatches } from './ColorSwatches'
+import { StoriesWizard } from './StoriesWizard'
+import { TagsWizard } from './TagsWizard'
 
-export type EditKind = 'basics' | 'tags' | 'style'
+export type EditKind = 'basics' | 'tags' | 'stories' | 'online' | 'style'
 
 const field =
   'mt-1.5 block w-full rounded-2xl border border-line bg-white px-4 py-3 text-ink shadow-[inset_0_2px_4px_rgb(59_38_34/0.04)] placeholder:text-ink-faint focus:border-lavender'
 
-/** One component for the three edit sheets; each form mounts fresh on open. */
-export function EditSheets({ open, onClose }: { open: EditKind | null; onClose: () => void }) {
+const NAME_MAX = 20
+const BIO_MAX = 120
+
+/**
+ * Every edit sheet of my profile; each form mounts fresh on open. Sheets with several
+ * questions are a Wizard (one question at a time, Save on the last); `step` opens one
+ * at a later question (the "คลื่นชัดขึ้น" card points straight at what's missing).
+ */
+export function EditSheets({ open, step = 0, onClose }: { open: EditKind | null; step?: number; onClose: () => void }) {
   return (
     <>
       <Sheet open={open === 'basics'} onClose={onClose} title={t('แก้ไขโปรไฟล์', 'Edit profile')}>
-        <BasicsForm onDone={onClose} />
+        <BasicsWizard onDone={onClose} />
       </Sheet>
       <Sheet open={open === 'tags'} onClose={onClose} title={t('เรื่องที่ชอบ', 'My interests')} width={640}>
-        <TagsForm onDone={onClose} />
+        <TagsWizard start={step} onDone={onClose} />
+      </Sheet>
+      <Sheet open={open === 'stories'} onClose={onClose} title={t('เรื่องเล่าของเรา', 'My stories')} width={580}>
+        <StoriesWizard start={step} onDone={onClose} />
+      </Sheet>
+      <Sheet open={open === 'online'} onClose={onClose} title={t('ช่วงที่มักออนไลน์', "When I'm usually online")}>
+        <OnlineForm onDone={onClose} />
       </Sheet>
       <Sheet open={open === 'style'} onClose={onClose} title={t('สไตล์การคุยของเรา', 'My chat style')}>
         <StyleForm onDone={onClose} />
@@ -32,190 +48,173 @@ export function EditSheets({ open, onClose }: { open: EditKind | null; onClose: 
   )
 }
 
-function BasicsForm({ onDone }: { onDone: () => void }) {
+/** Name → intro → color, one at a time. */
+function BasicsWizard({ onDone }: { onDone: () => void }) {
   const me = useMoshi((s) => s.me)
   const updateMe = useMoshi((s) => s.updateMe)
+  const [step, setStep] = useState(0)
+  // 'เรา' is the demo's stand-in name: start empty rather than make them delete it
   const [name, setName] = useState(me.name === 'เรา' ? '' : me.name)
   const [bio, setBio] = useState(me.bio)
   const [color, setColor] = useState<MochiColor>(me.color)
   const id = useId()
+  const shownName = name.trim() || me.name
 
-  const save = (e: FormEvent) => {
-    e.preventDefault()
-    updateMe({ name: name.trim() || me.name, bio: bio.trim(), color })
+  const save = () => {
+    updateMe({ name: shownName, bio: bio.trim(), color })
     onDone()
   }
 
   return (
-    <form onSubmit={save} className="space-y-5 pb-2">
-      <div className="flex flex-col items-center gap-2 pt-1">
-        <AnimatePresence mode="popLayout" initial={false}>
-          <motion.span key={color} initial={{ scale: 0.6, rotate: -10, opacity: 0 }} animate={{ scale: 1, rotate: 0, opacity: 1 }} exit={{ scale: 0.6, opacity: 0 }} transition={spring.bouncy}>
-            <Avatar color={color} size={96} face="happy" />
-          </motion.span>
-        </AnimatePresence>
-        <ColorSwatches value={color} onChange={setColor} legend={t('สีโมชิของเรา', "My Mochi's color")} size={34} className="flex justify-center" />
-      </div>
-      <div>
-        <label htmlFor={`${id}-name`} className="font-display font-semibold">
-          {t('ชื่อเล่น', 'Nickname')}
-        </label>
-        <input
-          id={`${id}-name`}
-          value={name}
-          maxLength={20}
-          onChange={(e) => setName(e.target.value)}
-          autoComplete="nickname"
-          placeholder={t('ชื่อที่อยากให้เพื่อนเรียก', 'What friends should call you')}
-          className={field}
-        />
-      </div>
-      <div>
-        <label htmlFor={`${id}-bio`} className="font-display font-semibold">
-          {t('แนะนำตัวสั้นๆ', 'A short intro')}
-        </label>
-        <textarea
-          id={`${id}-bio`}
-          value={bio}
-          maxLength={120}
-          rows={3}
-          onChange={(e) => setBio(e.target.value)}
-          placeholder={t('เช่น ชอบอนิเมะ เกมชิลๆ และคาเฟ่เงียบๆ', 'e.g. Into anime, chill games and quiet cafés')}
-          aria-describedby={`${id}-bio-count`}
-          className={`${field} resize-none`}
-        />
-        <p id={`${id}-bio-count`} className="mt-1 text-right text-xs text-ink-soft">
-          {t(`${bio.length}/120 ตัวอักษร`, `${bio.length}/120 characters`)}
-        </p>
-      </div>
-      <Button type="submit" block size="lg">
-        {t('บันทึก', 'Save')}
-      </Button>
-    </form>
+    <Wizard
+      step={step}
+      onStep={setStep}
+      onFinish={save}
+      finishLabel={t('บันทึก', 'Save')}
+      steps={[
+        {
+          key: 'name',
+          title: t('อยากให้เพื่อนเรียกเราว่าอะไร?', "What's your nickname?"),
+          hint: t('ชื่อเล่นสั้นๆ ที่อยากให้เพื่อนเรียก', "The name you'd like friends to use"),
+          // left empty, the name stays as it is
+          valid: shownName.trim().length > 0,
+          content: (
+            <div>
+              <label htmlFor={`${id}-name`} className="font-display font-semibold">
+                {t('ชื่อเล่น', 'Nickname')}
+              </label>
+              <input
+                id={`${id}-name`}
+                value={name}
+                maxLength={NAME_MAX}
+                onChange={(e) => setName(e.target.value)}
+                autoComplete="nickname"
+                enterKeyHint="next"
+                placeholder={t('ชื่อที่อยากให้เพื่อนเรียก', 'The name friends know you by')}
+                aria-describedby={`${id}-name-count`}
+                className={field}
+              />
+              <p id={`${id}-name-count`} className="mt-1 text-right text-xs text-ink-soft">
+                {t(`${name.length}/${NAME_MAX} ตัวอักษร`, `${name.length}/${NAME_MAX} characters`)}
+              </p>
+            </div>
+          ),
+        },
+        {
+          key: 'bio',
+          title: t('แนะนำตัวสั้นๆ หน่อย', 'Say a little about yourself'),
+          hint: t('ประโยคเดียวก็น่ารักแล้ว ไม่ต้องยาว', 'One line is plenty'),
+          content: (
+            <div>
+              <label htmlFor={`${id}-bio`} className="font-display font-semibold">
+                {t('แนะนำตัวสั้นๆ', 'A short intro')}
+              </label>
+              <textarea
+                id={`${id}-bio`}
+                value={bio}
+                maxLength={BIO_MAX}
+                rows={3}
+                onChange={(e) => setBio(e.target.value)}
+                placeholder={t('เช่น ชอบอนิเมะ เกมชิลๆ และคาเฟ่เงียบๆ', 'e.g. Into anime, chill games and quiet cafés')}
+                aria-describedby={`${id}-bio-count`}
+                className={`${field} resize-none`}
+              />
+              <p id={`${id}-bio-count`} className="mt-1 text-right text-xs text-ink-soft">
+                {t(`${bio.length}/${BIO_MAX} ตัวอักษร`, `${bio.length}/${BIO_MAX} characters`)}
+              </p>
+            </div>
+          ),
+        },
+        {
+          key: 'color',
+          title: t('โมชิของเราสีอะไรดี?', 'What color is your Mochi?'),
+          hint: t('สีนี้จะเป็นสีประจำตัวเราในแอป', 'This becomes your color around the app'),
+          content: (
+            <div className="flex flex-col items-center gap-2">
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.span
+                  key={color}
+                  initial={{ scale: 0.6, rotate: -10, opacity: 0 }}
+                  animate={{ scale: 1, rotate: 0, opacity: 1 }}
+                  exit={{ scale: 0.6, opacity: 0 }}
+                  transition={spring.bouncy}
+                >
+                  <Avatar color={color} size={96} face="happy" />
+                </motion.span>
+              </AnimatePresence>
+              <p className="max-w-full truncate font-display text-lg font-semibold text-ink">{displayName(shownName)}</p>
+              <ColorSwatches value={color} onChange={setColor} legend={t('สีโมชิของเรา', "My Mochi's color")} size={34} className="flex max-w-full justify-center" />
+            </div>
+          ),
+        },
+      ]}
+    />
   )
 }
 
-const CATEGORIES = (Object.keys(CATEGORY_LABEL) as TagCategory[]).filter((c) => c !== 'other')
-
-function TagsForm({ onDone }: { onDone: () => void }) {
+/** One question: which times of day I'm usually around. The four times cover the whole day, so there's no "other". */
+function OnlineForm({ onDone }: { onDone: () => void }) {
   const me = useMoshi((s) => s.me)
   const updateMe = useMoshi((s) => s.updateMe)
-  const [tags, setTags] = useState<string[]>(me.tags)
-  const [loves, setLoves] = useState<string[]>(me.loves.filter((t) => me.tags.includes(t)))
-  const grouped = useMemo(() => CATEGORIES.map((c) => ({ c, tags: TAGS.filter((t) => t.category === c) })), [])
-  const own = tags.filter(isOwnTag).flatMap((id) => tagOf(id) ?? [])
-  const ownFull = own.length >= MAX_OWN_TAGS
-
-  const addOwn = (text: string): boolean => {
-    const id = ownTagId(text)
-    if (!id) return false
-    if (tags.some((t) => sameTag(t, id))) return true
-    if (isOwnTag(id) && ownFull) return false
-    setTags([...tags, id])
-    return true
-  }
-
-  const toggleTag = (id: string) => {
-    if (tags.includes(id)) {
-      setTags(tags.filter((t) => t !== id))
-      setLoves(loves.filter((t) => t !== id))
-    } else setTags([...tags, id])
-  }
-  const toggleLove = (id: string) => {
-    if (loves.includes(id)) setLoves(loves.filter((t) => t !== id))
-    else if (loves.length < 3) setLoves([...loves, id])
-    else setLoves([...loves.slice(1), id]) // keep the newest three
-  }
-
+  const [slots, setSlots] = useState<OnlineSlot[]>(me.online)
+  const id = useId()
+  const toggle = (s: OnlineSlot) => setSlots(slots.includes(s) ? slots.filter((x) => x !== s) : [...slots, s])
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault()
-        updateMe({ tags, loves })
+        // in the day's order, whatever order they were tapped in
+        updateMe({ online: SLOT_OPTIONS.map((o) => o.id).filter((s) => slots.includes(s)) })
         onDone()
       }}
+      className="space-y-5 pb-2"
     >
-      <p className="text-sm text-ink-soft">
-        {t(
-          'เลือกอย่างน้อย 3 เรื่อง แล้วติดดาวเรื่องที่รักมากได้ 3 เรื่อง ยิ่งเลือกตรงใจ ยิ่งเจอคนคลื่นเดียวกันง่าย',
-          'Pick at least 3, then star up to 3 you love most. The truer your picks, the easier it is to find people on your wavelength',
-        )}
+      <p id={`${id}-hint`} className="text-sm text-ink-soft">
+        {t('เลือกได้หลายช่วง คนที่ออนไลน์ช่วงเดียวกันจะได้คุยกันทันใจ', 'Pick as many as you like. People around at the same times get to chat in the moment')}
       </p>
-
-      <section className="mt-4 rounded-3xl bg-white p-4" aria-labelledby="loves-h">
-        <h3 id="loves-h" className="flex items-center gap-1.5 font-display font-semibold">
-          <Star size={16} className="fill-butter" aria-hidden /> {t(`รักมาก (${loves.length}/3)`, `Love it (${loves.length}/3)`)}
-        </h3>
-        {tags.length ? (
-          <ul className="mt-2 flex flex-wrap gap-1.5">
-            {tags.map((t) => {
-              const tag = tagOf(t)
-              if (!tag) return null
-              const on = loves.includes(t)
-              return (
-                <li key={t} className="max-w-full">
-                  <motion.button
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => toggleLove(t)}
-                    whileTap={{ scale: 0.9 }}
-                    transition={spring.bouncy}
-                    className={`relative inline-flex h-9 max-w-full items-center gap-1.5 rounded-full border px-3 text-sm font-medium text-ink transition-colors after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] ${
-                      on ? 'border-butter bg-butter shadow-[inset_0_-2px_0_rgb(59_38_34/0.12)]' : 'border-line bg-cream'
-                    }`}
-                  >
-                    <motion.span animate={{ rotate: on ? 72 : 0, scale: on ? 1.15 : 1 }} transition={spring.bouncy} className="inline-flex">
-                      <Star size={14} strokeWidth={2.4} className={on ? 'fill-white' : ''} aria-hidden />
-                    </motion.span>
-                    <span className="min-w-0 truncate">{tag.label}</span>
-                  </motion.button>
-                </li>
-              )
-            })}
-          </ul>
-        ) : (
-          <p className="mt-1 text-sm text-ink-soft">{t('เลือกเรื่องที่ชอบด้านล่างก่อนนะ', 'Pick some interests below first')}</p>
+      <div role="group" aria-label={t('ช่วงที่มักออนไลน์', "When I'm usually online")} aria-describedby={`${id}-hint`} className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-2">
+        {SLOT_OPTIONS.map(({ id: slot, Icon, time }) => {
+          const on = slots.includes(slot)
+          return (
+            <motion.button
+              key={slot}
+              type="button"
+              aria-pressed={on}
+              onClick={() => toggle(slot)}
+              whileTap={{ scale: 0.95 }}
+              transition={spring.bouncy}
+              className={`flex min-h-16 min-w-0 items-center gap-2.5 rounded-2xl border-2 px-3 text-left transition-colors ${on ? 'border-sky bg-sky/45' : 'border-line bg-white hover:bg-white/80'}`}
+            >
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white text-ink shadow-[var(--shadow-soft)]" aria-hidden>
+                <Icon size={18} />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-display text-[15px] font-semibold text-ink">{ONLINE_LABEL[slot]}</span>
+                <span className="block text-xs text-ink-soft">{time}</span>
+              </span>
+            </motion.button>
+          )
+        })}
+      </div>
+      <AnimatePresence initial={false}>
+        {isAllDay(slots) && (
+          <motion.p
+            key="all-day"
+            role="status"
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={spring.soft}
+            className="rainbow-chip flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-center font-display text-[15px] font-semibold text-ink"
+          >
+            <Sparkles size={18} strokeWidth={2.4} aria-hidden className="shrink-0" />
+            {t('ออนไลน์ได้ทั้ง 24 ชั่วโมง!', "You're around 24/7!")}
+          </motion.p>
         )}
-      </section>
-
-      <div className="mt-4 space-y-4">
-        {grouped.map(({ c, tags: list }) => (
-          <section key={c} aria-labelledby={`cat-${c}`}>
-            <h3 id={`cat-${c}`} className="mb-2 text-sm font-semibold text-ink-soft">
-              {CATEGORY_LABEL[c]}
-            </h3>
-            <div className="flex flex-wrap gap-1.5">
-              {list.map((t) => (
-                <TagChip key={t.id} tag={t} selected={tags.includes(t.id)} onClick={() => toggleTag(t.id)} />
-              ))}
-            </div>
-          </section>
-        ))}
-        <section aria-labelledby="cat-other">
-          <h3 id="cat-other" className="text-sm font-semibold text-ink-soft">
-            {CATEGORY_LABEL.other}
-          </h3>
-          <p className="mb-2 text-xs text-ink-soft">
-            {ownFull
-              ? t(`เพิ่มเองครบ ${MAX_OWN_TAGS} เรื่องแล้ว แตะเรื่องเดิมเพื่อเอาออกได้นะ`, `That's ${MAX_OWN_TAGS} of your own. Tap one to remove it`)
-              : t('ไม่เจอเรื่องที่ชอบในรายการ? พิมพ์เองได้เลย', "Can't find yours on the list? Type it in")}
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {own.map((tag) => (
-              <TagChip key={tag.id} tag={tag} selected onClick={() => toggleTag(tag.id)} />
-            ))}
-            <OwnOption name={t('เพิ่มเรื่องที่ชอบเอง', 'Add your own interest')} placeholder={t('เช่น ปีนผา, ทำเซรามิก', 'e.g. climbing, pottery')} maxLength={OWN_TAG_MAX} onAdd={addOwn} stayOpen blocked={ownFull} />
-          </div>
-        </section>
-      </div>
-
-      <div className="sticky bottom-0 -mx-5 mt-5 bg-cream/90 px-5 pt-3 pb-1 backdrop-blur">
-        <Button type="submit" block size="lg" disabled={tags.length < 3} onPointerDown={leaveField}>
-          {tags.length < 3
-            ? t(`เลือกอีก ${3 - tags.length} เรื่องนะ`, `Pick ${3 - tags.length} more`)
-            : t(`บันทึก ${tags.length} เรื่องที่ชอบ`, `Save ${tags.length} interests`)}
-        </Button>
-      </div>
+      </AnimatePresence>
+      <Button type="submit" block size="lg">
+        {t('บันทึก', 'Save')}
+      </Button>
     </form>
   )
 }

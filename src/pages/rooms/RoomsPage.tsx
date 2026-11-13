@@ -1,6 +1,7 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { CalendarHeart, DoorOpen, LayoutGrid, Search, X } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { KineticText } from '@/components/motion'
 import { Avatar, Button, PageHeader, ShowMore, tabId, tabPanelId, Tabs, Zone, type TabItem } from '@/components/ui'
 import { useDataReady, useRooms, useSessions } from '@/data/hooks'
@@ -15,6 +16,9 @@ import { RoomCard } from './list/RoomCard'
 import { eventSession, liveFirst, roomMatches, sortByEvent } from './roomData'
 
 type Filter = 'all' | 'mine' | 'events'
+
+/** ?tab=mine / ?tab=events open that tab (home's "ดูทั้งหมด" links here); anything else is all rooms. */
+const filterOf = (value: string | null): Filter => (value === 'mine' || value === 'events' ? value : 'all')
 
 const FILTERS: TabItem<Filter>[] = [
   loc<TabItem<Filter>>({ key: 'all', label: L('ทั้งหมด', 'All rooms'), icon: <LayoutGrid size={16} strokeWidth={2.4} /> }),
@@ -64,7 +68,17 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
   const me = useMoshi((s) => s.me)
   const { toggle, sheet } = useRoomToggle()
   const sessions = useSessions()
-  const [filter, setFilter] = useState<Filter>('all')
+  const [params, setParams] = useSearchParams()
+  const filter = filterOf(params.get('tab'))
+  const setFilter = (next: Filter) =>
+    setParams(
+      (p) => {
+        if (next === 'all') p.delete('tab')
+        else p.set('tab', next)
+        return p
+      },
+      { replace: true },
+    )
   const [query, setQuery] = useState('')
   const q = useDeferredValue(query.trim())
 

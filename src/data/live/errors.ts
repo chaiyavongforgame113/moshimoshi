@@ -17,7 +17,7 @@ const POST_CLOSED = L('โพสต์นี้ปิดไปแล้ว ล�
 
 const KEYS: Record<string, Txt> = {
   image_rate_limited: L('ส่งรูปเยอะไปหน่อยแล้ว พักสักครู่แล้วค่อยส่งต่อนะ', "That's a lot of photos for now. Take a short break, then send more"),
-  intent_limit: L('โพสต์หาเพื่อนได้ทีละ 3 โพสต์นะ ลบอันเก่าก่อนแล้วค่อยโพสต์ใหม่', 'You can have 3 posts at a time. Remove an old one first, then post again'),
+  intent_limit: L('ชวนเล่นได้ทีละ 3 โพสต์นะ เอาอันเก่าลงก่อนแล้วค่อยโพสต์ใหม่', 'You can have 3 invites at a time. Take an old one down first, then post again'),
   intent_full: L('ตี้นี้เต็มแล้ว ไว้รอบหน้ามาด้วยกันนะ', "This group's full. Catch the next one!"),
   intent_closed: POST_CLOSED,
   intent_not_found: POST_CLOSED,

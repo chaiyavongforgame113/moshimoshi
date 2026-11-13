@@ -1,5 +1,5 @@
-import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { ArrowRight, ChevronLeft, MoonStar, PartyPopper } from 'lucide-react'
+import { AnimatePresence, MotionConfig, motion, type Variants } from 'motion/react'
+import { ArrowRight, Check, ChevronLeft, MoonStar, PartyPopper } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import type { MochiExpression } from '@/components/three'
@@ -16,34 +16,43 @@ import {
   cleanPrompts,
   defaultRooms,
   initialDraft,
+  isOptional,
   lookPatch,
+  QUESTION_OF,
+  QUESTIONS,
+  SCREEN_ORDER,
+  screenFlow,
   validate,
   type Draft,
   type DraftPatch,
+  type ScreenKey,
   type StepCheck,
 } from './model'
-import { LAST_STEP, mascotLine, mascotReaction, STEPS } from './options'
+import { mascotLine, mascotReaction, screenLabel } from './options'
 import { useDebounced, useFlash } from './parts/hooks'
 import { MascotSays } from './parts/MascotSays'
 import { PreviewPanel } from './parts/PreviewPanel'
 import { StepActions } from './parts/StepActions'
 import { StepProgress } from './parts/StepProgress'
 import { StepDone } from './steps/StepDone'
-import { StepHello } from './steps/StepHello'
+import { StepIntent } from './steps/StepIntent'
 import { StepInterests } from './steps/StepInterests'
-import { StepLooking } from './steps/StepLooking'
+import { StepLoves } from './steps/StepLoves'
 import { StepMochi } from './steps/StepMochi'
+import { StepName } from './steps/StepName'
+import { StepOnline } from './steps/StepOnline'
 import { StepRooms } from './steps/StepRooms'
+import { StepRules } from './steps/StepRules'
 import { StepStory } from './steps/StepStory'
-
-const ROOMS_STEP = 5
+import { StepStyle } from './steps/StepStyle'
+import { StepTopic } from './steps/StepTopic'
 
 /**
  * Switching language remounts the page (see Root in app/router), which would
  * wipe what the visitor has typed. The flow keeps a copy here and picks it up
  * on mount; leaving onboarding any other way clears it.
  */
-let snapshot: { draft: Draft; step: number; firstTime: boolean; postedIntent: string | null } | null = null
+let snapshot: { draft: Draft; screen: ScreenKey; firstTime: boolean; postedIntent: string | null } | null = null
 
 // direction-aware slide; children using `fadeUp` stagger in after it
 const slide: Variants = {
@@ -51,6 +60,9 @@ const slide: Variants = {
   show: { opacity: 1, x: 0, transition: { ...spring.soft, staggerChildren: 0.055, delayChildren: 0.05 } },
   exit: (dir: number) => ({ opacity: 0, x: dir * -56, transition: { duration: 0.18, ease: ease.out } }),
 }
+
+/** Enter means Next only where it has nothing else to do: not in a textarea, on a button, link or tab. */
+const ENTER_SKIP = 'button, a, select, textarea, [contenteditable="true"], [role="button"], [role="tab"], [role="dialog"]'
 
 /** Live mode waits for the profile, so the draft starts from the real one. */
 export default function OnboardingPage() {
@@ -78,7 +90,7 @@ function Onboarding() {
 
   const [draft, setDraft] = useState<Draft>(() => snapshot?.draft ?? initialDraft(me, onboarded))
   const [firstTime] = useState(() => snapshot?.firstTime ?? !onboarded)
-  const [step, setStep] = useState(() => snapshot?.step ?? 0)
+  const [screen, setScreen] = useState<ScreenKey>(() => snapshot?.screen ?? 'name')
   const [dir, setDir] = useState(1)
   const [navigated, setNavigated] = useState(false)
   const [nudge, setNudge] = useState(0)
@@ -89,8 +101,8 @@ function Onboarding() {
 
   // keep the copy current; drop it on unmount unless a language switch caused the unmount
   useEffect(() => {
-    snapshot = { draft, step, firstTime, postedIntent: postedIntent.current }
-  }, [draft, step, firstTime])
+    snapshot = { draft, screen, firstTime, postedIntent: postedIntent.current }
+  }, [draft, screen, firstTime])
   useEffect(() => {
     const lang = getLang()
     return () => {
@@ -113,30 +125,50 @@ function Onboarding() {
       if (was.face === draft.face) flash('happy', 1100)
     }
     if (was.name !== draft.name && draft.name.trim()) flash('talk', 380)
+    if (was.loves.length < draft.loves.length || was.tags.length < draft.tags.length) flash('happy', 700)
   }, [draft, flash])
 
+  const done = screen === 'done'
+  const flow = screenFlow(draft)
+  const at = Math.max(0, flow.indexOf(screen))
   const nameOk = draft.name.trim().length > 0
-  const expression: MochiExpression = step === LAST_STEP ? 'happy' : (flashExpr ?? (step === 0 && nameOk ? 'happy' : draft.face))
+  const expression: MochiExpression = done ? 'happy' : (flashExpr ?? (screen === 'name' && nameOk ? 'happy' : screen === 'rules' ? 'wink' : draft.face))
 
   const settledName = useDebounced(draft.name, 700)
   const settledStory = useDebounced(draft.prompts[0]?.text ?? '', 900)
-  const line = mascotLine(step, draft)
-  const reaction = mascotReaction(step, draft, { settledName, settledStory, lookChanged })
-  // a server with no rooms yet must not trap anyone on the rooms step
-  const check: StepCheck = step === ROOMS_STEP && !rooms.length ? { ok: true } : validate(step, draft)
+  const line = mascotLine(screen, draft)
+  const reaction = mascotReaction(screen, draft, { settledName, settledStory, lookChanged })
+  const optional = isOptional(screen, !firstTime)
+  // a server with no rooms yet must not trap anyone on the rooms screen
+  const check: StepCheck = screen === 'rooms' && !rooms.length ? { ok: true } : validate(screen, draft)
 
-  // live: skipping ahead needs a name, and finishes onboarding with what we know so far (no age limit)
-  const canSkip = mode === 'demo' || onboarded || nameOk
-  const skip = () => {
-    if (mode === 'live' && !onboarded) completeOnboarding({ ...lookPatch(draft), name: draft.name.trim(), color: draft.color })
+  // live: leaving early needs a name, and finishes onboarding with what we know so far (no age limit);
+  // answers already given are kept, so "ไว้ทีหลัง" never throws anything away. No board post yet.
+  const canLeave = mode === 'demo' || onboarded || nameOk
+  const leaveEarly = () => {
+    if (mode !== 'live' || onboarded) return
+    completeOnboarding({
+      ...lookPatch(draft),
+      name: draft.name.trim(),
+      color: draft.color,
+      tags: draft.tags,
+      loves: draft.loves,
+      prompts: cleanPrompts(draft),
+      online: draft.online,
+      chatStyle: draft.chatStyle,
+      ...(draft.rooms.length ? { rooms: draft.rooms } : {}),
+      ...(firstTime && draft.tags.length ? { bio: autoBio(draft) } : {}),
+    })
   }
 
-  const goTo = (to: number) => {
-    setDir(to > step ? 1 : -1)
+  const goTo = (to: ScreenKey) => {
+    setDir(SCREEN_ORDER.indexOf(to) > SCREEN_ORDER.indexOf(screen) ? 1 : -1)
     setNudge(0)
     setNavigated(true)
-    setStep(to)
-    if (to === LAST_STEP) setPulse((n) => n + 1) // one more sparkle pop to celebrate
+    // the rooms screen opens with picks already made (until they choose for themselves)
+    if (to === 'rooms' && !draft.roomsTouched) update((d) => ({ rooms: defaultRooms(d, rooms) }))
+    if (to === 'done') setPulse((n) => n + 1) // one more sparkle pop to celebrate
+    setScreen(to)
   }
 
   const commit = () => {
@@ -160,32 +192,44 @@ function Onboarding() {
     if (intent) postedIntent.current = postIntent(intent).id
   }
 
+  /** On to the next screen; finishing the rooms screen saves everything. */
+  const advance = () => {
+    if (done) {
+      // replace: Back from home must not land on question 1 again
+      navigate('/app', { replace: true })
+      return
+    }
+    if (screen === 'rooms') commit()
+    const to = flow[at + 1]
+    if (to) goTo(to)
+  }
+
   const next = () => {
     if (!check.ok) {
       setNudge((n) => n + 1)
       return
     }
-    if (step === LAST_STEP) {
-      navigate('/app')
-      return
-    }
-    if (step === ROOMS_STEP - 1 && !draft.roomsTouched) update((d) => ({ rooms: defaultRooms(d, rooms) }))
-    if (step === ROOMS_STEP) commit()
-    goTo(step + 1)
+    advance()
   }
 
-  const back = () => (step === 0 ? navigate(onboarded ? '/app' : '/') : goTo(step - 1))
+  const back = () => (at === 0 ? navigate(onboarded ? '/app' : '/') : goTo(flow[at - 1]))
 
-  // Enter = next, except on buttons/links (they activate themselves) and mid-IME composition
+  // from the finish to a profile: home takes onboarding's place in history first, so the profile's
+  // Back lands on home (one navigation at a time: a second one started mid-way would cancel the first)
+  const openProfile = (id: string) => {
+    void Promise.resolve(navigate('/app', { replace: true })).then(() => navigate(`/app/people/${id}`))
+  }
+
+  // Enter = next on one-line fields (and when nothing in particular has focus), never mid-IME composition
   const nextRef = useRef(next)
   useEffect(() => {
     nextRef.current = next
   })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.isComposing || e.repeat || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.defaultPrevented) return
+      if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229 || e.repeat || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.defaultPrevented) return
       const target = e.target as HTMLElement | null
-      if (target?.closest('button, a, select, [role="button"], [role="dialog"]')) return
+      if (target?.closest(ENTER_SKIP)) return
       e.preventDefault()
       nextRef.current()
     }
@@ -193,131 +237,181 @@ function Onboarding() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const nothingYet = !draft.intent && !draft.online.length && !draft.chatStyle.length
-  const cta =
-    step === LAST_STEP
-      ? t('ไปคืนนี้กันเลย', 'On to Tonight')
-      : step === ROOMS_STEP
-        ? t('เสร็จแล้ว!', 'All done!')
-        : step === 4 && nothingYet
-          ? t('ไว้ค่อยบอกทีหลัง', "I'll tell you later")
-          : t('ไปต่อ', 'Next')
-  const ctaIcon = step === LAST_STEP ? <MoonStar size={20} aria-hidden /> : step === ROOMS_STEP ? <PartyPopper size={20} aria-hidden /> : <ArrowRight size={20} aria-hidden />
+  const cta = done
+    ? t('ไปคืนนี้กันเลย', 'On to Tonight')
+    : screen === 'rooms'
+      ? t('เสร็จแล้ว!', 'All done!')
+      : screen === 'rules'
+        ? t('ตกลง', 'Got it')
+        : t('ไปต่อ', 'Next')
+  const ctaIcon = done ? (
+    <MoonStar size={20} aria-hidden />
+  ) : screen === 'rooms' ? (
+    <PartyPopper size={20} aria-hidden />
+  ) : screen === 'rules' ? (
+    <Check size={20} strokeWidth={2.6} aria-hidden />
+  ) : (
+    <ArrowRight size={20} aria-hidden />
+  )
 
+  // phones: the mochi screen is tight, so น้องโมชิ's bubble shrinks and its reply floats over the 3D mochi
+  const tight = !desktop && screen === 'mochi'
   const stepProps = { draft, update, desktop }
   const stepBody = (() => {
-    switch (step) {
-      case 0:
-        return <StepHello {...stepProps} expression={expression} pulse={pulse} />
-      case 1:
-        return <StepMochi {...stepProps} expression={expression} pulse={pulse} />
-      case 2:
+    switch (screen) {
+      case 'name':
+        return <StepName {...stepProps} expression={expression} pulse={pulse} />
+      case 'rules':
+        return <StepRules {...stepProps} expression={expression} pulse={pulse} />
+      case 'mochi':
+        return <StepMochi {...stepProps} expression={expression} pulse={pulse} say={tight ? reaction : null} />
+      case 'likes':
         return <StepInterests {...stepProps} />
-      case 3:
+      case 'loves':
+        return <StepLoves {...stepProps} />
+      case 'intent':
+        return <StepIntent {...stepProps} />
+      case 'topic':
+        return <StepTopic {...stepProps} />
+      case 'online':
+        return <StepOnline {...stepProps} />
+      case 'style':
+        return <StepStyle {...stepProps} />
+      case 'story':
         return <StepStory {...stepProps} />
-      case 4:
-        return <StepLooking {...stepProps} />
-      case ROOMS_STEP:
+      case 'rooms':
         return <StepRooms {...stepProps} />
       default:
-        return <StepDone desktop={desktop} pulse={pulse} onOpenProfile={(id) => navigate(`/app/people/${id}`)} />
+        return <StepDone desktop={desktop} pulse={pulse} onOpenProfile={openProfile} />
     }
   })()
 
   const stepView = (
     <AnimatePresence mode="wait" custom={dir} onExitComplete={() => window.scrollTo({ top: 0 })}>
-      <motion.div key={step} custom={dir} variants={slide} initial="hidden" animate="show" exit="exit" className="space-y-6">
-        <MascotSays line={line.line} sub={line.sub} face={line.face} reaction={reaction} focusOnMount={navigated} listening={step !== LAST_STEP} />
+      <motion.div key={screen} custom={dir} variants={slide} initial="hidden" animate="show" exit="exit" className="space-y-4 sm:space-y-6">
+        <MascotSays
+          line={line.line}
+          sub={line.sub}
+          face={line.face}
+          reaction={reaction}
+          focusOnMount={navigated}
+          listening={!done && screen !== 'rules'}
+          compact={tight}
+        />
         {stepBody}
       </motion.div>
     </AnimatePresence>
   )
 
   const actions = (variant: 'bar' | 'row') => (
-    <StepActions variant={variant} label={cta} icon={ctaIcon} ok={check.ok} need={check.need} nudge={nudge} onNext={next} />
+    <StepActions
+      variant={variant}
+      label={cta}
+      icon={ctaIcon}
+      ok={check.ok}
+      need={check.need}
+      nudge={nudge}
+      onNext={next}
+      onSkip={optional ? advance : undefined}
+    />
   )
 
   return (
-    // overflow-x-clip: the sideways step slide must never cause horizontal scroll (clip keeps sticky working)
-    <div className="relative z-10 min-h-dvh overflow-x-clip">
-      <Header step={step} desktop={desktop} onBack={back} canSkip={canSkip} onSkip={skip} />
-      {desktop ? (
-        <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,5fr)_minmax(0,6fr)] items-start gap-8 px-8 pt-2 pb-12 xl:gap-12">
-          <aside className="sticky top-[6.75rem]" aria-label={t('ตัวอย่างโปรไฟล์', 'Profile preview')}>
-            <PreviewPanel draft={draft} expression={expression} pulse={pulse} step={step} province={me.province} />
-          </aside>
-          <main className="min-w-0">
-            <div className="glass rounded-[2.25rem] p-7 xl:p-9">{stepView}</div>
-            {actions('row')}
-          </main>
-        </div>
-      ) : (
-        <>
-          <main className="mx-auto max-w-xl px-4 pt-2 pb-44 sm:px-6">{stepView}</main>
-          {actions('bar')}
-        </>
-      )}
-    </div>
+    <MotionConfig reducedMotion="user">
+      {/* overflow-x-clip: the sideways step slide must never cause horizontal scroll (clip keeps sticky working) */}
+      <div className="relative z-10 min-h-dvh overflow-x-clip">
+        <Header screen={screen} desktop={desktop} onBack={back} canLeave={canLeave} onLeave={leaveEarly} />
+        {desktop ? (
+          <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,5fr)_minmax(0,6fr)] items-start gap-8 px-8 pt-2 pb-12 xl:gap-12">
+            <aside className="sticky top-[6.75rem]" aria-label={t('ตัวอย่างโปรไฟล์', 'Profile preview')}>
+              <PreviewPanel draft={draft} expression={expression} pulse={pulse} done={done} province={me.province} />
+            </aside>
+            <main className="min-w-0">
+              <div className="glass rounded-[2.25rem] p-7 xl:p-9">{stepView}</div>
+              {actions('row')}
+            </main>
+          </div>
+        ) : (
+          <>
+            <main className="mx-auto max-w-xl px-4 pt-2 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-6">{stepView}</main>
+            {actions('bar')}
+          </>
+        )}
+      </div>
+    </MotionConfig>
   )
 }
 
 interface HeaderProps {
-  step: number
+  screen: ScreenKey
   desktop: boolean
   onBack: () => void
-  canSkip: boolean
-  onSkip: () => void
+  canLeave: boolean
+  onLeave: () => void
 }
 
-function Header({ step, desktop, onBack, canSkip, onSkip }: HeaderProps) {
-  const done = step === LAST_STEP
-  const label = STEPS[step].label
+function Header({ screen, desktop, onBack, canLeave, onLeave }: HeaderProps) {
+  const done = screen === 'done'
+  const label = screenLabel(screen)
+  const q = QUESTION_OF[screen]
+  const count = (
+    <span className="shrink-0 font-display text-xs font-semibold text-ink-soft tabular-nums" aria-hidden>
+      {done ? '✓' : `${q}/${QUESTIONS}`}
+    </span>
+  )
+  const animatedLabel = (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.span
+        key={label}
+        initial={{ opacity: 0, y: 5 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -5 }}
+        transition={spring.soft}
+        className="block truncate"
+      >
+        {label}
+      </motion.span>
+    </AnimatePresence>
+  )
   return (
     <header className="safe-top sticky top-0 z-40 bg-cream/75 backdrop-blur-xl lg:bg-cream/40">
-      {/* phones: back · language · skip on one row, progress full width below it */}
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 pb-3 sm:flex-nowrap sm:px-6 lg:gap-6 lg:px-8 lg:pt-3">
+      {/* phones: back · step name · language · later on one row, the progress full width below it */}
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-2 gap-y-1.5 px-4 pb-2.5 sm:flex-nowrap sm:gap-x-3 sm:px-6 sm:pb-3 lg:gap-6 lg:px-8 lg:pt-3">
         {desktop && (
           <Link to="/" className="flex shrink-0 items-center gap-2 rounded-full pr-2 font-display text-xl font-semibold text-ink" aria-label={t('moshimoshi หน้าแรก', 'moshimoshi home')}>
             <Avatar color="cream" size={38} face="happy" />
             moshimoshi
           </Link>
         )}
-        <IconButton label={step === 0 ? t('กลับหน้าก่อน', 'Back to previous page') : t('ย้อนกลับ', 'Back')} onClick={onBack} className={done ? 'invisible' : ''}>
+        <IconButton label={screen === 'name' ? t('กลับหน้าก่อน', 'Back to previous page') : t('ย้อนกลับ', 'Back')} onClick={onBack}>
           <ChevronLeft size={22} />
         </IconButton>
 
-        <div className="order-last min-w-0 basis-full sm:order-none sm:flex-1 sm:basis-auto lg:mx-auto lg:max-w-lg">
-          <div className="mb-1 flex items-baseline justify-between gap-2 text-xs font-semibold">
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.span
-                key={label}
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={spring.soft}
-                className="truncate text-ink"
-              >
-                {label}
-              </motion.span>
-            </AnimatePresence>
-            <span className="shrink-0 text-ink-soft" aria-hidden>
-              {step + 1}/{STEPS.length}
-            </span>
+        {/* the step name sits in the top row on phones */}
+        <p className="min-w-0 flex-1 font-display text-sm font-semibold text-ink sm:hidden">{animatedLabel}</p>
+
+        <div className="order-last flex min-w-0 basis-full items-center gap-2.5 sm:order-none sm:block sm:flex-1 sm:basis-auto lg:mx-auto lg:max-w-lg">
+          <div className="mb-1 hidden items-baseline justify-between gap-2 text-xs font-semibold text-ink sm:flex">
+            <span className="min-w-0">{animatedLabel}</span>
+            {count}
           </div>
-          <StepProgress step={step} total={STEPS.length} label={label} />
+          <StepProgress step={q - 1} total={QUESTIONS} label={screenLabel(screen)} done={done} />
+          <span className="sm:hidden">{count}</span>
         </div>
 
-        <LangToggle size="sm" className="ml-auto sm:ml-0" />
+        <LangToggle size="sm" className="sm:ml-0" />
 
-        {done || !canSkip ? (
+        {done || !canLeave ? (
           <span className="hidden w-11 shrink-0 sm:block lg:w-24" aria-hidden />
         ) : (
           <Link
             to="/app"
-            onClick={onSkip}
-            className="inline-flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-ink-soft transition-colors hover:bg-white/70 hover:text-ink"
+            replace
+            onClick={onLeave}
+            aria-label={t('ไว้ทีหลัง ข้ามไปหน้าหลักก่อน', 'Later: go to the app for now')}
+            className="inline-flex min-h-11 shrink-0 items-center rounded-full px-2.5 text-sm font-semibold text-ink-soft transition-colors hover:bg-white/70 hover:text-ink"
           >
-            {t('ข้ามไปก่อน', 'Skip for now')}
+            {t('ไว้ทีหลัง', 'Later')}
           </Link>
         )}
       </div>

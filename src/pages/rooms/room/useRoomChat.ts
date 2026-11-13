@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDataMode, usePeople, useRoomMessages } from '@/data/hooks'
 import { TAG_BY_ID, tagLabelTh, tagsInText } from '@/data/tags'
+import { markRoomMessageSent } from '@/lib/progress'
 import { useMoshi } from '@/lib/store'
 import type { ChatMessage, Room, User } from '@/lib/types'
 import { useIsMine } from '@/pages/people/lib'
@@ -56,6 +57,7 @@ export function useRoomChat(room: Room) {
   const demo = useDataMode() === 'demo'
   const people = usePeople()
   const isMine = useIsMine()
+  const myId = useMoshi((s) => s.me.id)
   const sendRoomMessage = useMoshi((s) => s.sendRoomMessage)
   const receiveRoomMessage = useMoshi((s) => s.receiveRoomMessage)
   const added = useMoshi((s) => s.roomMessages[room.id]) ?? EMPTY
@@ -79,6 +81,8 @@ export function useRoomChat(room: Room) {
   const send = useCallback(
     (text: string, replyFrom?: string, isThanks = false) => {
       sendRoomMessage(room.id, text)
+      // ticks "พิมพ์ทักในห้องแรก" on the home's first steps
+      markRoomMessageSent(myId)
       if (!demo) return
       const n = counter.current++
       const replier = pickReplier(room, people, text, n, replyFrom)
@@ -95,7 +99,7 @@ export function useRoomChat(room: Room) {
         }, replyAt),
       )
     },
-    [room, people, demo, sendRoomMessage, receiveRoomMessage],
+    [room, people, demo, myId, sendRoomMessage, receiveRoomMessage],
   )
 
   // "seeded" = the room already had a conversation before anything happened here

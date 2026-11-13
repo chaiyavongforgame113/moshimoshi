@@ -1,10 +1,9 @@
 import { motion, useReducedMotion } from 'motion/react'
 import { SIGNAL_GRADIENT } from '@/lib/colors'
-import { L, t, tx } from '@/lib/i18n'
-import { BREAKDOWN_LABEL, signalMeta } from '@/lib/matching'
+import { t } from '@/lib/i18n'
+import { signalMeta } from '@/lib/matching'
 import { spring } from '@/lib/motion'
-import type { MatchBreakdown, MatchResult, SignalLevel } from '@/lib/types'
-import { ReasonIcon } from './ReasonIcon'
+import type { SignalLevel } from '@/lib/types'
 
 type Size = 'xs' | 'sm' | 'md' | 'lg'
 
@@ -66,74 +65,5 @@ export function SignalMeter({ level, size = 'md', showLabel = true, short, class
         <span className={`min-w-0 truncate font-display font-semibold text-ink ${s.text}`}>{short ? meta.short : meta.label}</span>
       )}
     </span>
-  )
-}
-
-/** Five-dot mini scale for a single dimension (no numbers). */
-function Dots({ value }: { value: number }) {
-  const filled = Math.max(0, Math.min(5, Math.round(value * 5)))
-  return (
-    <span className="inline-flex gap-1" aria-hidden>
-      {[0, 1, 2, 3, 4].map((i) => (
-        <span
-          key={i}
-          className="size-2 rounded-full"
-          style={{ background: i < filled ? SIGNAL_GRADIENT[Math.min(4, filled - 1)] : 'rgb(59 38 34 / 0.12)' }}
-        />
-      ))}
-    </span>
-  )
-}
-
-const DOT_WORD = [
-  L('ยังไม่ตรง', 'Not yet'),
-  L('นิดหน่อย', 'A little'),
-  L('พอใช้', 'Some'),
-  L('ตรงกัน', 'A match'),
-  L('ตรงมาก', 'A strong match'),
-  L('ตรงเป๊ะ', 'Spot on'),
-]
-
-/**
- * Full explanation card: big meter + hint + per-dimension dots + concrete reasons.
- */
-export function SignalDetail({ match, className = '' }: { match: MatchResult; className?: string }) {
-  const meta = signalMeta(match.level)
-  const keys = Object.keys(match.breakdown) as (keyof MatchBreakdown)[]
-  return (
-    <div className={`rounded-3xl bg-white/80 p-5 ${className}`}>
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold tracking-wide text-ink-soft">{t('สัญญาณถูกคอ', 'Vibe signal')}</p>
-          <p className="font-display text-2xl font-semibold text-ink">{meta.label}</p>
-          <p className="text-sm text-ink-soft">{meta.hint}</p>
-        </div>
-        <SignalMeter level={match.level} size="lg" showLabel={false} />
-      </div>
-      <dl className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {keys.map((k) => {
-          const v = match.breakdown[k]
-          return (
-            <div key={k} className="flex items-center justify-between rounded-2xl bg-cream px-3 py-2">
-              <dt className="text-sm text-ink-soft">{BREAKDOWN_LABEL[k]}</dt>
-              <dd className="flex items-center gap-2">
-                <Dots value={v} />
-                <span className="sr-only">{tx(DOT_WORD[Math.round(v * 5)])}</span>
-              </dd>
-            </div>
-          )
-        })}
-      </dl>
-      {match.reasons.length > 0 && (
-        <ul className="mt-4 space-y-2">
-          {match.reasons.slice(0, 4).map((r) => (
-            <li key={r.text} className="flex items-start gap-2.5 text-sm text-ink">
-              <ReasonIcon kind={r.kind} />
-              <span>{r.text}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   )
 }

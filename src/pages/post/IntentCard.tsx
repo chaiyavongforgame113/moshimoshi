@@ -11,7 +11,7 @@ import { roomLabel } from '@/pages/home/greeting'
 import type { IntentDraft } from './draft'
 import { ROLE_BY_KEY, TEMPLATE_BY_KEY, whenText } from './templates'
 
-/** The board card exactly as others will see it (live while composing). */
+/** The board card exactly as others will see it (the ชวนเล่น preview, the board). */
 export function IntentCard({ intent, me, className = '' }: { intent: IntentDraft; me: User; className?: string }) {
   const tpl = TEMPLATE_BY_KEY[intent.template]
   const role = ROLE_BY_KEY[intent.role]
@@ -62,14 +62,14 @@ export function IntentCard({ intent, me, className = '' }: { intent: IntentDraft
           {intent.give && (
             <span>
               <span className="text-ink-soft">{t('ให้ได้ ', 'Can offer ')}</span>
-              <b className="font-semibold">{intent.give}</b>
+              <b className="font-semibold">{known(intent.give)}</b>
             </span>
           )}
           {intent.give && intent.want && <ArrowLeftRight size={15} className="text-ink-soft" aria-label={t('แลกกับ', 'in exchange for')} />}
           {intent.want && (
             <span>
               <span className="text-ink-soft">{t('อยากได้ ', 'Wants ')}</span>
-              <b className="font-semibold">{intent.want}</b>
+              <b className="font-semibold">{known(intent.want)}</b>
             </span>
           )}
         </div>

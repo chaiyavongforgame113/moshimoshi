@@ -1,6 +1,6 @@
-import { AnimatePresence, motion } from 'motion/react'
-import { Check, Lightbulb, PencilLine, Plus, X } from 'lucide-react'
-import { useRef } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { Check, ChevronDown, Lightbulb, PencilLine, Plus } from 'lucide-react'
+import { useId, useRef, useState, type ReactNode } from 'react'
 import { cutText, OWN_PROMPT_ID, OWN_QUESTION_MAX, PROMPT_BY_ID, PROMPTS, tagOf } from '@/data/tags'
 import { t } from '@/lib/i18n'
 import { fadeUp, spring } from '@/lib/motion'
@@ -8,251 +8,212 @@ import type { PromptAnswer } from '@/lib/types'
 import { STORY_MAX, STORY_MIN, textLength, type StepProps } from '../model'
 import { Pill } from '../parts/Pill'
 
+/**
+ * 9 · one little story (skippable). The question shows on a note card; "เปลี่ยนคำถาม" opens
+ * the list (ending with "อื่นๆ" to ask their own). A second answer can be added on the profile.
+ */
 export function StepStory({ draft, update }: StepProps) {
-  const [first, second] = draft.prompts
-
-  const setAnswer = (index: number, patch: Partial<PromptAnswer>) =>
-    update((d) => ({ prompts: d.prompts.map((p, i) => (i === index ? { ...p, ...patch } : p)) }))
-
-  const addSecond = () =>
-    update((d) => {
-      const used = new Set(d.prompts.map((p) => p.promptId))
-      const next = PROMPTS.find((p) => !used.has(p.id)) ?? PROMPTS[1]
-      return { prompts: [d.prompts[0], { promptId: next.id, text: '' }] }
-    })
-
-  const removeSecond = () => update((d) => ({ prompts: d.prompts.slice(0, 1) }))
-
-  // helper chips: the visitor's own interests, ready to drop into the answer
-  const helpers = [...draft.loves, ...draft.tags.filter((t) => !draft.loves.includes(t))].slice(0, 4).flatMap((id) => tagOf(id) ?? [])
-
-  return (
-    <div className="space-y-5">
-      {first && (
-        <AnswerBlock
-          index={0}
-          answer={first}
-          exclude={second?.promptId}
-          helpers={helpers.map((tag) => tag.label)}
-          onChange={(patch) => setAnswer(0, patch)}
-        />
-      )}
-
-      <AnimatePresence mode="wait" initial={false}>
-        {second ? (
-          <motion.div key="second" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10, scale: 0.98 }} transition={spring.soft}>
-            <AnswerBlock
-              index={1}
-              answer={second}
-              exclude={first?.promptId}
-              helpers={[]}
-              onChange={(patch) => setAnswer(1, patch)}
-              onRemove={removeSecond}
-            />
-          </motion.div>
-        ) : (
-          <motion.div key="add" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }} transition={spring.soft}>
-            <motion.button
-              type="button"
-              onClick={addSecond}
-              whileTap={{ scale: 0.96 }}
-              whileHover={{ y: -2 }}
-              transition={spring.bouncy}
-              className="flex min-h-14 w-full items-center justify-center gap-2 rounded-[1.6rem] border-2 border-dashed border-ink/20 bg-white/50 px-4 font-display text-[15px] font-semibold text-ink hover:bg-white/80"
-            >
-              <Plus size={18} aria-hidden />
-              {t('ตอบอีกข้อ', 'Answer another')} <span className="font-body text-sm font-normal text-ink-soft">{t('(ไม่บังคับ)', '(optional)')}</span>
-            </motion.button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
-interface AnswerBlockProps {
-  index: number
-  answer: PromptAnswer
-  /** prompt already used by the other answer */
-  exclude?: string
-  helpers: string[]
-  onChange: (patch: Partial<PromptAnswer>) => void
-  onRemove?: () => void
-}
-
-function AnswerBlock({ index, answer, exclude, helpers, onChange, onRemove }: AnswerBlockProps) {
+  const answer = draft.prompts[0] ?? { promptId: PROMPTS[0].id, text: '' }
+  const other = draft.prompts[1]?.promptId
   const own = answer.promptId === OWN_PROMPT_ID
   const prompt = PROMPT_BY_ID[answer.promptId] ?? PROMPTS[0]
+  const [choosing, setChoosing] = useState(false)
   const answerBox = useRef<HTMLTextAreaElement>(null)
+  const questionBox = useRef<HTMLInputElement>(null)
+  const reduce = useReducedMotion()
+  const listId = useId()
   const len = textLength(answer.text)
   const enough = len >= STORY_MIN
-  const fieldId = `ob-story-${index}`
-  const groupId = `ob-prompt-${index}`
+
+  const set = (patch: Partial<PromptAnswer>) => update((d) => ({ prompts: [{ ...(d.prompts[0] ?? answer), ...patch }, ...d.prompts.slice(1)] }))
+
+  const pick = (promptId: string) => set({ promptId })
+  // a tap (not arrow keys moving through the list) settles it: fold the list, go write
+  const picked = (promptId: string) => {
+    setChoosing(false)
+    requestAnimationFrame(() => (promptId === OWN_PROMPT_ID ? questionBox.current : answerBox.current)?.focus({ preventScroll: true }))
+  }
 
   const insert = (piece: string) => {
     // a second tap on the same helper shouldn't repeat the word
     if (answer.text.includes(piece)) return
     const base = answer.text.trimEnd()
-    onChange({ text: cutText(base ? `${base} ${piece}` : piece, STORY_MAX) })
+    set({ text: cutText(base ? `${base} ${piece}` : piece, STORY_MAX) })
   }
 
+  // helper chips: two of their own interests, ready to drop into the answer
+  const helpers = [...draft.loves, ...draft.tags.filter((id) => !draft.loves.includes(id))].slice(0, 2).flatMap((id) => tagOf(id) ?? [])
+
   return (
-    <motion.section variants={fadeUp} className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <h2 id={groupId} className="font-display text-base font-semibold text-ink">
-          {index === 0 ? t('เลือกคำถามที่อยากตอบ', 'Pick a question to answer') : t('คำถามข้อที่สอง', 'Second question')}
-        </h2>
-        {onRemove && (
-          <button
-            type="button"
-            onClick={onRemove}
-            className="inline-flex min-h-11 items-center gap-1 rounded-full px-3 text-sm font-semibold text-ink-soft hover:bg-white/70 hover:text-ink"
-          >
-            <X size={16} aria-hidden /> {t('เอาออก', 'Remove')}
-          </button>
-        )}
-      </div>
-
-      <div role="radiogroup" aria-labelledby={groupId} className="flex flex-wrap gap-2">
-        {PROMPTS.filter((p) => p.id !== exclude).map((p) => {
-          const on = p.id === answer.promptId
-          return (
-            <label key={p.id} className="relative cursor-pointer">
-              <input
-                type="radio"
-                name={groupId}
-                value={p.id}
-                checked={on}
-                onChange={() => onChange({ promptId: p.id })}
-                className="peer sr-only"
-              />
-              <motion.span
-                whileTap={{ scale: 0.94 }}
-                transition={spring.bouncy}
-                className={`inline-flex min-h-11 items-center rounded-2xl border px-3.5 py-2 text-sm transition-colors peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-lavender ${
-                  on ? 'border-peach bg-peach/45 font-semibold text-ink' : 'border-line bg-white/85 text-ink hover:bg-white'
-                }`}
-              >
-                {p.label}
-              </motion.span>
-            </label>
-          )
-        })}
-        <label className="relative cursor-pointer">
-          <input type="radio" name={groupId} value={OWN_PROMPT_ID} checked={own} onChange={() => onChange({ promptId: OWN_PROMPT_ID })} className="peer sr-only" />
-          <motion.span
-            whileTap={{ scale: 0.94 }}
-            transition={spring.bouncy}
-            className={`inline-flex min-h-11 items-center gap-1.5 rounded-2xl border-2 px-3.5 py-2 text-sm transition-colors peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-lavender ${
-              own ? 'border-peach bg-peach/45 font-semibold text-ink' : 'border-dashed border-ink/25 bg-white/70 font-semibold text-ink hover:border-peach hover:bg-white'
-            }`}
-          >
-            <PencilLine size={15} aria-hidden />
-            {t('อื่นๆ ตั้งคำถามเอง', 'Other (ask your own)')}
-          </motion.span>
-        </label>
-      </div>
-
-      {/* the answer, on a little lined note card */}
-      <div className="card p-4 transition-shadow focus-within:ring-4 focus-within:ring-peach/35 sm:p-5">
-        <AnimatePresence mode="wait" initial={false}>
-          {own ? (
-            <motion.div key="own" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={spring.soft}>
-              <label htmlFor={`${fieldId}-q`} className="block text-xs font-semibold text-ink-soft">
-                {t('คำถามของเรา', 'Your question')}
-              </label>
-              <div className="mt-0.5 flex items-baseline gap-2 border-b-2 border-dashed border-line pb-1 transition-colors focus-within:border-peach">
-                <input
-                  id={`${fieldId}-q`}
-                  value={answer.question ?? ''}
-                  maxLength={OWN_QUESTION_MAX}
-                  onChange={(e) => onChange({ question: e.target.value })}
-                  onKeyDown={(e) => {
-                    // Enter goes on to the answer, not to the next step
-                    if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
-                    e.preventDefault()
-                    answerBox.current?.focus()
-                  }}
-                  enterKeyHint="next"
-                  autoComplete="off"
-                  placeholder={t('เช่น เพลงที่ฟังแล้วยิ้มได้ทุกครั้งคือ…', 'e.g. A song that always makes me smile is…')}
-                  className="min-w-0 flex-1 bg-transparent font-display text-lg leading-[2.25] font-semibold text-ink outline-none placeholder:font-body placeholder:text-base placeholder:font-normal placeholder:text-ink-faint"
-                />
-                <span className="shrink-0 text-[11px] font-semibold text-ink-faint tabular-nums" aria-hidden>
-                  {(answer.question ?? '').length}/{OWN_QUESTION_MAX}
-                </span>
-              </div>
-            </motion.div>
-          ) : (
-            <motion.label
-              key={prompt.id}
-              htmlFor={fieldId}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={spring.soft}
-              className="block font-display text-lg font-semibold text-ink"
-            >
-              {prompt.label}
-            </motion.label>
-          )}
-        </AnimatePresence>
-        <textarea
-          ref={answerBox}
-          id={fieldId}
-          aria-label={own ? t('คำตอบของเรา', 'Your answer') : undefined}
-          rows={3}
-          value={answer.text}
-          maxLength={STORY_MAX}
-          onChange={(e) => onChange({ text: cutText(e.target.value, STORY_MAX) })}
-          enterKeyHint="next"
-          placeholder={own ? t('แล้วคำตอบของเราล่ะ…', "And your answer is…") : prompt.example}
-          aria-describedby={`${fieldId}-count`}
-          className="mt-1 block w-full resize-none bg-transparent text-base leading-8 text-ink outline-none placeholder:text-ink-faint"
-          style={{
-            backgroundImage:
-              'repeating-linear-gradient(to bottom, transparent 0, transparent calc(2rem - 1px), var(--color-line) calc(2rem - 1px), var(--color-line) 2rem)',
-            backgroundAttachment: 'local',
-          }}
-        />
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <span className="relative h-2 flex-1 overflow-hidden rounded-full bg-ink/10" aria-hidden>
-            <motion.span
-              className={`absolute inset-y-0 left-0 rounded-full ${enough ? 'bg-mint' : 'bg-peach'}`}
-              initial={false}
-              animate={{ width: `${Math.min(100, (len / STORY_MIN) * 100)}%` }}
-              transition={spring.soft}
-            />
-          </span>
-          <span id={`${fieldId}-count`} className="flex shrink-0 items-center gap-1 text-xs font-semibold text-ink-soft">
-            {enough ? (
-              <>
-                <Check size={13} strokeWidth={3} className="text-success" aria-hidden /> {t('กำลังดี', 'Just right')}
-              </>
-            ) : len ? (
-              t(`อีก ${STORY_MIN - len} ตัวอักษร`, `${STORY_MIN - len} more ${STORY_MIN - len === 1 ? 'character' : 'characters'}`)
+    <motion.section variants={fadeUp} className="card p-4 transition-shadow focus-within:ring-4 focus-within:ring-peach/35 sm:p-5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <AnimatePresence mode="wait" initial={false}>
+            {own ? (
+              <motion.div key="own" initial={reduce ? false : { opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={spring.soft}>
+                <label htmlFor="ob-story-q" className="block text-xs font-semibold text-ink-soft">
+                  {t('คำถามของเรา', 'Your question')}
+                </label>
+                <div className="mt-0.5 flex items-baseline gap-2 border-b-2 border-dashed border-line pb-1 transition-colors focus-within:border-peach">
+                  <input
+                    ref={questionBox}
+                    id="ob-story-q"
+                    value={answer.question ?? ''}
+                    maxLength={OWN_QUESTION_MAX}
+                    onChange={(e) => set({ question: e.target.value })}
+                    onKeyDown={(e) => {
+                      // Enter goes on to the answer, not to the next step
+                      if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return
+                      e.preventDefault()
+                      answerBox.current?.focus()
+                    }}
+                    enterKeyHint="next"
+                    autoComplete="off"
+                    placeholder={t('เช่น เพลงที่ฟังแล้วยิ้มได้คือ…', 'e.g. A song that makes me smile is…')}
+                    className="min-w-0 flex-1 bg-transparent font-display text-lg leading-[2] font-semibold text-ink outline-none placeholder:font-body placeholder:text-base placeholder:font-normal placeholder:text-ink-faint"
+                  />
+                  <span className="shrink-0 text-[11px] font-semibold text-ink-faint tabular-nums" aria-hidden>
+                    {(answer.question ?? '').length}/{OWN_QUESTION_MAX}
+                  </span>
+                </div>
+              </motion.div>
             ) : (
-              t(`อย่างน้อย ${STORY_MIN} ตัวอักษร`, `At least ${STORY_MIN} characters`)
+              <motion.label
+                key={prompt.id}
+                htmlFor="ob-story"
+                initial={reduce ? false : { opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={spring.soft}
+                className="block pt-2 font-display text-lg leading-snug font-semibold text-ink"
+              >
+                {prompt.label}
+              </motion.label>
             )}
-            <span className="text-ink-soft/80">
-              · {answer.text.length}/{STORY_MAX}
-            </span>
-          </span>
+          </AnimatePresence>
         </div>
+        <button
+          type="button"
+          aria-expanded={choosing}
+          aria-controls={listId}
+          onClick={() => setChoosing((c) => !c)}
+          className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-full bg-white/85 px-3 text-sm font-semibold text-ink ring-1 ring-line transition-colors hover:bg-white"
+        >
+          {t('เปลี่ยนคำถาม', 'Change')}
+          <ChevronDown size={16} aria-hidden className={`transition-transform ${choosing ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          {!own && (
-            <Pill onClick={() => onChange({ text: prompt.example })} icon={<Lightbulb size={15} aria-hidden />} color="butter">
-              {t('ใช้ตัวอย่าง', 'Use the example')}
-            </Pill>
+      <AnimatePresence initial={false}>
+        {choosing && (
+          <motion.div
+            key="prompts"
+            id={listId}
+            initial={reduce ? false : { opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={spring.soft}
+            className="overflow-hidden"
+          >
+            <div role="radiogroup" aria-label={t('เลือกคำถาม', 'Pick a question')} className="flex flex-wrap gap-2 pt-3">
+              {PROMPTS.filter((p) => p.id !== other).map((p) => (
+                <PromptOption key={p.id} id={p.id} on={p.id === answer.promptId} onPick={pick} onTap={picked}>
+                  {p.label}
+                </PromptOption>
+              ))}
+              <PromptOption id={OWN_PROMPT_ID} on={own} onPick={pick} onTap={picked} dashed>
+                <PencilLine size={15} aria-hidden />
+                {t('อื่นๆ ตั้งคำถามเอง', 'Other (ask your own)')}
+              </PromptOption>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* the answer, on lined note paper */}
+      <textarea
+        ref={answerBox}
+        id="ob-story"
+        aria-label={own ? t('คำตอบของเรา', 'Your answer') : undefined}
+        rows={3}
+        value={answer.text}
+        maxLength={STORY_MAX}
+        onChange={(e) => set({ text: cutText(e.target.value, STORY_MAX) })}
+        placeholder={own ? t('แล้วคำตอบของเราล่ะ…', 'And your answer is…') : prompt.example}
+        aria-describedby="ob-story-count"
+        className="mt-2 block w-full resize-none bg-transparent text-base leading-8 text-ink outline-none placeholder:text-ink-faint"
+        style={{
+          backgroundImage:
+            'repeating-linear-gradient(to bottom, transparent 0, transparent calc(2rem - 1px), var(--color-line) calc(2rem - 1px), var(--color-line) 2rem)',
+          backgroundAttachment: 'local',
+        }}
+      />
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <span className="relative h-2 flex-1 overflow-hidden rounded-full bg-ink/10" aria-hidden>
+          <motion.span
+            className={`absolute inset-y-0 left-0 rounded-full ${enough ? 'bg-mint' : 'bg-peach'}`}
+            initial={false}
+            animate={{ width: `${Math.min(100, (len / STORY_MIN) * 100)}%` }}
+            transition={reduce ? { duration: 0 } : spring.soft}
+          />
+        </span>
+        <span id="ob-story-count" className="flex shrink-0 items-center gap-1 text-xs font-semibold text-ink-soft">
+          {enough ? (
+            <>
+              <Check size={13} strokeWidth={3} className="text-success" aria-hidden /> {t('กำลังดี', 'Just right')}
+            </>
+          ) : len ? (
+            t(`อีก ${STORY_MIN - len} ตัวอักษร`, `${STORY_MIN - len} more ${STORY_MIN - len === 1 ? 'character' : 'characters'}`)
+          ) : (
+            t(`อย่างน้อย ${STORY_MIN} ตัวอักษร`, `At least ${STORY_MIN} characters`)
           )}
-          {helpers.map((h) => (
-            <Pill key={h} onClick={() => insert(h)} ariaLabel={t(`เติมคำว่า ${h}`, `Add "${h}"`)} icon={<Plus size={14} className="shrink-0" aria-hidden />}>
-              <span className="min-w-0 truncate">{h}</span>
-            </Pill>
-          ))}
-        </div>
+          <span className="text-ink-soft/80">
+            · {answer.text.length}/{STORY_MAX}
+          </span>
+        </span>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {!own && (
+          <Pill onClick={() => set({ text: prompt.example })} icon={<Lightbulb size={15} aria-hidden />} color="butter">
+            {t('ใช้ตัวอย่าง', 'Use the example')}
+          </Pill>
+        )}
+        {helpers.map((h) => (
+          <Pill key={h.id} onClick={() => insert(h.label)} ariaLabel={t(`เติมคำว่า ${h.label}`, `Add "${h.label}"`)} icon={<Plus size={14} className="shrink-0" aria-hidden />}>
+            <span className="min-w-0 truncate">{h.label}</span>
+          </Pill>
+        ))}
       </div>
     </motion.section>
+  )
+}
+
+interface PromptOptionProps {
+  id: string
+  on: boolean
+  onPick: (id: string) => void
+  /** a pointer tap (arrow keys only move the choice) */
+  onTap: (id: string) => void
+  dashed?: boolean
+  children: ReactNode
+}
+
+function PromptOption({ id, on, onPick, onTap, dashed, children }: PromptOptionProps) {
+  return (
+    <label className="relative max-w-full cursor-pointer" onClick={(e) => e.detail > 0 && onTap(id)}>
+      <input type="radio" name="ob-prompt" value={id} checked={on} onChange={() => onPick(id)} className="peer sr-only" />
+      <span
+        className={`inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-2xl border px-3.5 py-2 text-sm transition-colors peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-lavender ${
+          on
+            ? 'border-peach bg-peach/45 font-semibold text-ink'
+            : dashed
+              ? 'border-2 border-dashed border-ink/25 bg-white/70 font-semibold text-ink hover:border-peach hover:bg-white'
+              : 'border-line bg-white/85 text-ink hover:bg-white'
+        }`}
+      >
+        {children}
+      </span>
+    </label>
   )
 }

@@ -1,16 +1,17 @@
 import { motion } from 'motion/react'
-import { DoorOpen, Download, MessageCircle, MoonStar, Plus, Radio, type LucideIcon } from 'lucide-react'
+import { ChevronRight, DoorOpen, Download, MessageCircle, MoonStar, Plus, Radio, type LucideIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, Navigate, NavLink, useLocation, useOutlet } from 'react-router'
 import { JellyRipple, Magnetic, RouteTransition } from '@/components/motion'
-import { Avatar, ButtonLink, SignalMeter } from '@/components/ui'
-import { useChats, useDataMode, useDataReady, useMatches, usePeople, useRooms, useSessions } from '@/data/hooks'
+import { Avatar, ButtonLink, RoomIcon } from '@/components/ui'
+import { useChats, useDataMode, useDataReady, useRooms, useSessions } from '@/data/hooks'
 import { useInstallPrompt, useIsDesktop, useMediaQuery } from '@/lib/hooks'
 import { displayName, L, loc, t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
-import type { MatchResult, Room, Session, User } from '@/lib/types'
+import type { Room, Session } from '@/lib/types'
 import { InstallSheet } from './InstallSheet'
+import { TabTip, useTabTip } from './TabTip'
 
 interface NavItem {
   to: string
@@ -66,6 +67,8 @@ export function AppShell() {
   const location = useLocation()
   // full-screen pages (1:1 chat on phones) hide the bottom bar
   const immersive = !desktop && /^\/app\/chats\/[^/]+$/.test(location.pathname)
+  // first visit to a main tab: one line from Little Mochi above the page
+  const [tip, dismissTip] = useTabTip()
 
   if (needsAgeCheck) return <Navigate to="/onboarding" replace />
 
@@ -76,14 +79,17 @@ export function AppShell() {
           <Sidebar />
           <main className="min-w-0 flex-1 pb-16">
             <div className="mx-auto max-w-3xl">
+              <TabTip tip={tip} onDismiss={dismissTip} />
               <AnimatedOutlet />
             </div>
           </main>
+          {/* the rail's column stays reserved, so pages never shift sideways when an event goes live */}
           {wide && <RightRail />}
         </div>
       ) : (
         <>
           <main className={`px-4 ${immersive ? '' : 'pb-[calc(7.5rem+env(safe-area-inset-bottom))]'}`}>
+            <TabTip tip={tip} onDismiss={dismissTip} />
             <AnimatedOutlet />
           </main>
           {!immersive && <BottomNav />}
@@ -104,7 +110,11 @@ function BottomNav() {
         {items.map((n) => (
           <TabLink key={n.to} item={n} />
         ))}
-        <Link to="/app/post" aria-label={t('โพสต์หาเพื่อน', 'Post to find friends')} className="relative -mt-8 flex flex-col items-center">
+        <Link
+          to="/app/post"
+          aria-label={t('ชวนเล่น ชวนคนมาทำอะไรด้วยกัน', 'Invite people to do something together')}
+          className="relative -mt-8 flex flex-col items-center rounded-full"
+        >
           <Magnetic max={8}>
             <motion.span
               whileTap={{ scaleX: 1.1, scaleY: 0.84 }}
@@ -115,7 +125,7 @@ function BottomNav() {
               <JellyRipple />
             </motion.span>
           </Magnetic>
-          <span className="mt-0.5 text-[11px] font-semibold text-ink">{t('หาเพื่อน', 'Find friends')}</span>
+          <span className="mt-0.5 text-[11px] font-semibold whitespace-nowrap text-ink">{t('ชวนเล่น', 'Invite')}</span>
         </Link>
         {right.map((n) => (
           <TabLink key={n.to} item={n} badge={n.to === '/app/chats' ? unread : undefined} />
@@ -179,8 +189,15 @@ function Sidebar() {
         ))}
       </nav>
       <Magnetic className="mt-5" max={6} strength={0.25}>
-        <ButtonLink to="/app/post" block size="lg" icon={<Plus size={20} strokeWidth={2.8} />} data-cursor={t('เขียนโพสต์', 'Write a post')}>
-          {t('โพสต์หาเพื่อน', 'Post to find friends')}
+        <ButtonLink
+          to="/app/post"
+          block
+          size="lg"
+          icon={<Plus size={20} strokeWidth={2.8} />}
+          aria-label={t('ชวนเล่น ชวนคนมาทำอะไรด้วยกัน', 'Invite people to do something together')}
+          data-cursor={t('ชวนคนมาเล่นด้วยกัน', 'Invite people')}
+        >
+          {t('ชวนเล่น', 'Invite')}
           <JellyRipple />
         </ButtonLink>
       </Magnetic>
@@ -214,101 +231,71 @@ function Sidebar() {
   )
 }
 
+/** live events the rail lists before "ดูทั้งหมด" */
+const RAIL_EVENTS = 3
+
+/** the busiest live event first */
+const byBusiest = (a: Session, b: Session) => b.going - a.going
+
+/**
+ * Wide screens only: a compact "อีเวนต์ที่เปิดอยู่ตอนนี้" card while something is live, nothing
+ * otherwise (home already lists events, so the card sits out there). The column itself always
+ * stays, so the page keeps the same place between the sidebar and it.
+ */
 function RightRail() {
-  const ready = useDataReady()
-  const matches = useMatches()
-  const people = usePeople()
   const sessions = useSessions()
   const rooms = useRooms()
-  const top = useMemo(
-    () =>
-      matches
-        .slice(0, 3)
-        .map((m) => ({ m, u: people.find((p) => p.id === m.userId) }))
-        .filter((x): x is { m: MatchResult; u: User } => !!x.u),
-    [matches, people],
-  )
-  const tonight = useMemo(
+  const { pathname } = useLocation()
+  const home = pathname.replace(/\/$/, '') === '/app'
+  const live = useMemo(
     () =>
       sessions
-        .filter((s) => s.dayOffset === 0)
-        .sort((a, b) => a.time.localeCompare(b.time))
-        .slice(0, 3)
+        .filter((s) => s.live)
+        .sort(byBusiest)
         .map((s) => ({ s, room: rooms.find((r) => r.id === s.roomId) }))
         .filter((x): x is { s: Session; room: Room } => !!x.room),
     [sessions, rooms],
   )
-  return (
-    <aside className="sticky top-0 hidden h-dvh w-80 shrink-0 flex-col gap-5 overflow-y-auto py-8 min-[1440px]:flex">
-      <div className="card p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-display text-lg font-semibold">{t('คนคลื่นเดียวกัน', 'Same wavelength')}</h2>
-          <Link to="/app/people" className="text-sm font-semibold text-ink-soft underline-offset-4 hover:underline">
-            {t('ดูทั้งหมด', 'See all')}
-          </Link>
-        </div>
-        {!ready ? (
-          <RailSkeleton />
-        ) : top.length ? (
-          <ul className="space-y-1">
-            {top.map(({ m, u }) => (
-              <li key={m.userId}>
-                <Link to={`/app/people/${u.id}`} className="flex items-center gap-3 rounded-2xl p-2 hover:bg-cream">
-                  <Avatar color={u.color} size={42} online={u.isOnline} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-display font-semibold">{u.name}</span>
-                    <span className="block truncate text-xs text-ink-soft">{m.reasons[0]?.text}</span>
-                  </span>
-                  <SignalMeter level={m.level} size="sm" showLabel={false} />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="rounded-2xl bg-cream p-3 text-sm text-ink-soft">
-            {t(
-              'ยังไม่เจอใครคลื่นตรงกันเลย ลองโพสต์หาเพื่อนไว้ ใครใช่จะเห็นเราก่อน',
-              "No one on your wavelength yet. Post what you're looking for and the right people will see you first",
-            )}
-          </p>
-        )}
-      </div>
-      <div className="card p-4">
-        <h2 className="mb-3 font-display text-lg font-semibold">{t('รอบคุยคืนนี้', "Tonight's sessions")}</h2>
-        {!ready ? (
-          <RailSkeleton />
-        ) : tonight.length ? (
-          <ul className="space-y-2">
-            {tonight.map(({ s, room }) => (
-              <li key={s.id}>
-                <Link to={`/app/rooms/${s.roomId}`} className="flex items-center gap-3 rounded-2xl bg-cream p-3 hover:bg-cream-2">
-                  <span className="w-12 font-display text-sm font-bold">{s.time}</span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold">{s.title}</span>
-                    <span className="block truncate text-xs text-ink-soft">
-                      {room.name} · {t(`${s.going} คนจะมา`, `${s.going} going`)}
-                    </span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="rounded-2xl bg-cream p-3 text-sm text-ink-soft">
-            {t('คืนนี้ยังไม่มีรอบคุย แวะไปนั่งเล่นในห้องก่อนได้นะ', 'No sessions tonight. Drop by a room and hang out for now')}
-          </p>
-        )}
-      </div>
-    </aside>
-  )
-}
 
-function RailSkeleton() {
+  if (home || !live.length) return <div aria-hidden className="w-80 shrink-0" />
+
   return (
-    <div role="status" aria-label={t('กำลังโหลด', 'Loading')} className="space-y-2">
-      {[0, 1].map((i) => (
-        <span key={i} aria-hidden className="block h-12 rounded-2xl bg-cream motion-safe:animate-pulse" />
-      ))}
-    </div>
+    <aside aria-labelledby="rail-live" className="sticky top-0 flex h-dvh w-80 shrink-0 flex-col py-8">
+      <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring.soft} className="card p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 id="rail-live" className="flex min-w-0 items-center gap-2 font-display text-lg leading-snug font-semibold">
+            <span className="relative flex size-2.5 shrink-0" aria-hidden>
+              <span className="absolute inline-flex size-full rounded-full bg-success opacity-70 motion-safe:animate-ping" />
+              <span className="relative inline-flex size-2.5 rounded-full bg-success" />
+            </span>
+            {t('อีเวนต์ที่เปิดอยู่ตอนนี้', 'Live events now')}
+          </h2>
+          {live.length > RAIL_EVENTS && (
+            <Link
+              to="/app/rooms?tab=events"
+              className="inline-flex min-h-11 shrink-0 items-center gap-0.5 rounded-full px-2 text-sm font-semibold text-ink-soft underline-offset-4 hover:underline"
+            >
+              {t('ดูทั้งหมด', 'See all')}
+              <ChevronRight size={16} aria-hidden />
+            </Link>
+          )}
+        </div>
+        <ul className="mt-3 space-y-2">
+          {live.slice(0, RAIL_EVENTS).map(({ s, room }) => (
+            <li key={s.id}>
+              <Link to={`/app/rooms/${s.roomId}`} className="flex items-center gap-3 rounded-2xl bg-cream p-3 transition-colors hover:bg-cream-2">
+                <RoomIcon room={room} size={40} />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold">{s.title}</span>
+                  <span className="block truncate text-xs text-ink-soft">
+                    {room.name} · {t(`${s.going} คนจะมาร่วม`, `${s.going} going`)}
+                  </span>
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </motion.section>
+    </aside>
   )
 }
