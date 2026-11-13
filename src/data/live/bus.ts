@@ -49,11 +49,18 @@ export const pendingConsent = new Map<string, { on: boolean }>()
 export const unsending = new Set<string>()
 /** people I'm unblocking, while the delete is out (a reload that read the old list keeps them unblocked) */
 export const unblocking = new Set<string>()
+/**
+ * "จูนคลื่น" picks the server hasn't confirmed yet, per question (the object tells taps apart; mine
+ * shows over the server's meanwhile). `waiting`: its write was lost on the way (offline), so it
+ * stays on this device and sync sends it again after the next reload or reconnect.
+ */
+export const pendingWave = new Map<string, { choice: number; waiting?: boolean }>()
 
 export function clearPending() {
   pendingConsent.clear()
   unsending.clear()
   unblocking.clear()
+  pendingWave.clear()
 }
 
 // A full reload, the same one a reconnect runs. Sync registers it while a session is live; e.g. an

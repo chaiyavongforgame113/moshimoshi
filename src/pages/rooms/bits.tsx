@@ -3,13 +3,14 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { CalendarClock, Check, Hand, Plus } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Avatar, type MochiFace } from '@/components/ui'
-import { usePeople, usePerson, useSessions } from '@/data/hooks'
+import { useEvents, usePeople, usePerson } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
+import { eventPhase, eventWhenLabel } from '@/lib/events'
 import { t } from '@/lib/i18n'
 import { ease, spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import type { MochiColor, Room, User } from '@/lib/types'
-import { nextSession, sessionWhen } from './roomData'
+import { liveOrSoon, useEventsNow } from '@/pages/events/lib'
 
 export interface StackPerson {
   id: string
@@ -81,7 +82,7 @@ export function LiveDot({ className = '' }: { className?: string }) {
   )
 }
 
-/** "กำลังคุย N คน" — or, when nobody is on, when the next session starts (never "0 online"). */
+/** "กำลังคุย N คน" — or, when nobody is on, the room's event (open now, or when the next starts; never "0 online"). */
 export function PresenceLine({ room, className = '' }: { room: Room; className?: string }) {
   if (room.onlineCount > 0) {
     return (
@@ -95,11 +96,18 @@ export function PresenceLine({ room, className = '' }: { room: Room; className?:
 }
 
 function NextSessionLine({ room, className }: { room: Room; className: string }) {
-  const s = nextSession(room.id, useSessions())
+  const events = useEvents({ roomId: room.id })
+  const now = useEventsNow(events)
+  const s = liveOrSoon(events, now)[0]
+  const open = !!s && eventPhase(s, now) === 'open'
   return (
     <span className={`inline-flex items-center gap-1.5 text-sm font-semibold text-ink-soft ${className}`}>
-      <CalendarClock size={15} strokeWidth={2.4} aria-hidden />
-      {s ? t(`รอบถัดไป ${sessionWhen(s)}`, `Next session: ${sessionWhen(s)}`) : t(`คึกคักช่วง ${room.primeTime}`, `Busiest ${room.primeTime}`)}
+      {open ? <LiveDot /> : <CalendarClock size={15} strokeWidth={2.4} aria-hidden />}
+      {open
+        ? t('อีเวนต์เปิดอยู่ตอนนี้', 'Event open now')
+        : s
+          ? t(`อีเวนต์ถัดไป ${eventWhenLabel(s.startsAt, now)}`, `Next event: ${eventWhenLabel(s.startsAt, now)}`)
+          : t(`คึกคักช่วง ${room.primeTime}`, `Busiest ${room.primeTime}`)}
     </span>
   )
 }
@@ -160,6 +168,8 @@ export function PopToggle({
   labelOn,
   labelOff,
   ariaLabel,
+  srExtra,
+  quiet,
   iconOn = <Check size={18} strokeWidth={2.8} />,
   iconOff = <Plus size={18} strokeWidth={2.8} />,
   compact,
@@ -172,6 +182,10 @@ export function PopToggle({
   labelOff: string
   /** stable accessible name; on/off is conveyed by aria-pressed */
   ariaLabel?: string
+  /** read after the visible words (e.g. what it's for), so voice control still finds the button by them */
+  srExtra?: string
+  /** white with a hairline instead of coral: for lists and cards next to the screen's own main button */
+  quiet?: boolean
   iconOn?: ReactNode
   iconOff?: ReactNode
   compact?: boolean
@@ -198,7 +212,11 @@ export function PopToggle({
       animate={{ scale: on && !reduce ? [1, 1.14, 0.97, 1] : 1 }}
       transition={{ duration: 0.45, ease: ease.out }}
       className={`relative z-10 inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full whitespace-nowrap font-display font-semibold transition-colors ${sizing} ${
-        on ? 'bg-mint/70 text-ink shadow-[inset_0_-2px_0_rgb(59_38_34/0.12)]' : 'bg-coral text-ink shadow-[var(--shadow-puffy)] hover:brightness-105'
+        on
+          ? 'bg-mint/70 text-ink shadow-[inset_0_-2px_0_rgb(59_38_34/0.12)]'
+          : quiet
+            ? 'border border-line bg-white text-ink shadow-[var(--shadow-soft)] hover:bg-cream'
+            : 'bg-coral text-ink shadow-[var(--shadow-puffy)] hover:brightness-105'
       } ${className}`}
     >
       <AnimatePresence mode="popLayout" initial={false}>
@@ -214,6 +232,7 @@ export function PopToggle({
         </motion.span>
       </AnimatePresence>
       <span className={compact ? 'sr-only md:not-sr-only' : ''}>{on ? labelOn : labelOff}</span>
+      {srExtra && <span className="sr-only">{srExtra}</span>}
       {burst > 0 && !reduce && <Burst key={burst} />}
     </motion.button>
   )

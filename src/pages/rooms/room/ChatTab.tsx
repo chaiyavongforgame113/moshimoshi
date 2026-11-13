@@ -1,6 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Check, ChevronUp, Hand, MessageCircleQuestion, PartyPopper } from 'lucide-react'
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { Avatar, Button } from '@/components/ui'
 import { useDailyQuestion, usePeople } from '@/data/hooks'
@@ -13,10 +13,10 @@ import { useMoshi } from '@/lib/store'
 import type { ChatMessage, Room, User } from '@/lib/types'
 import { useIsMine } from '@/pages/people/lib'
 import { Bone } from '@/pages/people/Skeleton'
-import { ReactedBadge, SameToggle, type StackPerson } from '../bits'
 import { parseWelcome, welcomeText } from '../roomData'
+import { MyBubble, TheirBubble } from './Bubbles'
 import { Composer, JoinToChat, type Draft } from './Composer'
-import { MessageSheet, MoreButton, type MessageTarget } from './MessageActions'
+import { MessageSheet, type MessageTarget } from './MessageActions'
 import { PhotoButton, RoomPhotoBubble, RoomPhotoViewer, useRoomPerms } from './roomPhotos'
 
 const CONFETTI = (['butter', 'mint', 'lavender', 'pink', 'sky'] as const).map((c) => MOCHI[c].shade)
@@ -41,23 +41,6 @@ function chatItems(messages: ChatMessage[]): ChatItem[] {
     else items.push({ welcomes: [message] })
   })
   return items
-}
-
-/** Splits "@name" mentions out so they can be highlighted. */
-function RichText({ text }: { text: string }) {
-  return (
-    <>
-      {text.split(/(@\S+)/).map((part, i) =>
-        part.startsWith('@') ? (
-          <b key={i} className="rounded-md bg-butter/60 px-1 font-semibold">
-            {part}
-          </b>
-        ) : (
-          <Fragment key={i}>{part}</Fragment>
-        ),
-      )}
-    </>
-  )
 }
 
 export function ChatTab({
@@ -96,6 +79,7 @@ export function ChatTab({
   const me = useMoshi((s) => s.me)
   const sames = useMoshi((s) => s.sames)
   const toggleSame = useMoshi((s) => s.toggleSame)
+  const reportRoomMessage = useMoshi((s) => s.reportRoomMessage)
   // anyone can read the chat; the server only takes messages from members
   const joined = useMoshi((s) => s.me.rooms.includes(room.id))
   const isMine = useIsMine()
@@ -236,7 +220,7 @@ export function ChatTab({
                     message={m}
                     author={author}
                     byId={byId}
-                    room={room}
+                    hostIds={room.hostIds}
                     head={head}
                     me={me}
                     same={sames.includes(m.id)}
@@ -307,7 +291,7 @@ export function ChatTab({
           }}
         />
       )}
-      <MessageSheet roomId={room.id} target={acting} onClose={closeActions} />
+      <MessageSheet target={acting} onClose={closeActions} onReport={(m, reason, details) => reportRoomMessage(room.id, m.id, reason, details)} />
       <RoomPhotoViewer
         message={photo}
         name={(photo ? byId.get(photo.userId)?.name : undefined) ?? t('เพื่อน', 'a friend')}
@@ -317,87 +301,6 @@ export function ChatTab({
         onClose={() => setPhoto(null)}
       />
     </section>
-  )
-}
-
-function TheirBubble({
-  message: m,
-  author,
-  byId,
-  room,
-  head,
-  me,
-  same,
-  onSame,
-  onMore,
-}: {
-  message: ChatMessage
-  /** undefined: someone we can't see any more (left, or blocked) */
-  author: User | undefined
-  byId: Map<string, User>
-  room: Room
-  head: boolean
-  me: User
-  same: boolean
-  onSame: () => void
-  /** ⋯ pressed: report the message or block its author */
-  onMore?: (el: HTMLButtonElement) => void
-}) {
-  const u = author ?? { id: m.userId, name: t('เพื่อนในห้อง', 'Room member'), color: 'cream' as const, isOnline: false }
-  const host = room.hostIds.includes(u.id)
-  const people: StackPerson[] = [
-    ...(same ? [{ id: 'me', color: me.color, face: 'happy' as const }] : []),
-    ...(m.sameBy ?? []).map((id) => byId.get(id)).filter((p): p is User => !!p),
-  ]
-  return (
-    // group/msg: with a mouse, the ⋯ shows while this message is hovered or has focus inside
-    <div className="group/msg flex items-start gap-2.5">
-      <div className="w-9 shrink-0">
-        {head &&
-          (author ? (
-            <Link to={`/app/people/${u.id}`} aria-label={t(`ดูโปรไฟล์ ${u.name}`, `See ${u.name}'s profile`)} className="block rounded-full">
-              <Avatar color={u.color} size={36} online={u.isOnline} ring={host} />
-            </Link>
-          ) : (
-            <Avatar color={u.color} size={36} />
-          ))}
-      </div>
-      <div className="flex max-w-[82%] min-w-0 flex-col items-start sm:max-w-[75%]">
-        {head && (
-          <p className="mb-1 flex flex-wrap items-center gap-x-1.5 text-xs leading-normal">
-            <span className="font-display text-sm font-semibold text-ink">{u.name}</span>
-            {host && <span className="rounded-full bg-butter/70 px-2 py-px font-semibold text-ink">{t('พี่โมชิ', 'Mochi host')}</span>}
-            <span className="text-ink-soft">{known(m.at)}</span>
-          </p>
-        )}
-        <p className="max-w-full rounded-3xl rounded-tl-lg border border-line bg-white px-4 py-2.5 text-[15px] leading-relaxed [overflow-wrap:anywhere] text-ink shadow-[var(--shadow-soft)]">
-          <RichText text={m.text} />
-        </p>
-        {/* gap-2: the ⋯'s wider hit area stays clear of "เหมือนกัน!" */}
-        <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          <SameToggle on={same} onToggle={onSame} people={people} />
-          {onMore && <MoreButton name={author ? u.name : undefined} onOpen={onMore} />}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function MyBubble({ message: m, me }: { message: ChatMessage; me: User }) {
-  const p = MOCHI[me.color]
-  return (
-    <div className="flex flex-col items-end">
-      <p
-        className="max-w-[82%] rounded-3xl rounded-br-lg px-4 py-2.5 text-[15px] leading-relaxed [overflow-wrap:anywhere] shadow-[var(--shadow-soft)] sm:max-w-[75%]"
-        style={{ background: `linear-gradient(160deg, ${p.light}, ${p.base})`, color: p.ink }}
-      >
-        <RichText text={m.text} />
-      </p>
-      <div className="mt-1 flex max-w-[82%] flex-wrap items-center justify-end gap-x-2 gap-y-1 sm:max-w-[75%]">
-        <ReactedBadge ids={m.sameBy} />
-        <span className="mr-1 text-[11px] text-ink-soft">{known(m.at)}</span>
-      </div>
-    </div>
   )
 }
 

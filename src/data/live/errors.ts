@@ -1,3 +1,4 @@
+import { EVENT_DRAFT_ISSUES, EVENT_REFUSALS } from '@/lib/events'
 import { L, dateLocale, getLang, t, tx, type Txt } from '@/lib/i18n'
 
 // Friendly lines for writes that didn't go through. The database raises
@@ -16,6 +17,23 @@ const SIGNED_OUT = L('หมดเวลาเข้าสู่ระบบแ�
 const POST_CLOSED = L('โพสต์นี้ปิดไปแล้ว ลองดูโพสต์อื่นในห้องนะ', 'This post is closed. Check out the others in the room')
 
 const KEYS: Record<string, Txt> = {
+  // events (20261114000001_room_events.sql)
+  event_not_started: EVENT_REFUSALS.upcoming,
+  event_ended: EVENT_REFUSALS.closed,
+  event_cancelled: EVENT_REFUSALS.cancelled,
+  event_not_found: L('ไม่เจออีเวนต์นี้แล้วนะ อาจถูกลบไปพร้อมห้อง', "We can't find this event anymore. It may have gone with its room"),
+  room_not_found: L('ไม่เจอห้องนี้แล้วนะ', "We can't find this room anymore"),
+  // create_event's checks, worded like the wizard's own
+  title_invalid: EVENT_DRAFT_ISSUES.title,
+  description_invalid: EVENT_DRAFT_ISSUES.description,
+  duration_invalid: EVENT_DRAFT_ISSUES.duration,
+  starts_at_invalid: EVENT_DRAFT_ISSUES.startsAt,
+  event_limit: L(
+    'ตอนนี้มีอีเวนต์ที่ยังไม่จบกับอีเวนต์ประจำสัปดาห์รวมกันครบ 20 อันแล้ว รอให้บางอันจบ หรือหยุดอันประจำสัปดาห์ที่ไม่ใช้แล้วก่อนนะ',
+    'You already have 20 events and weekly series going. Let a few finish, or stop a weekly one you no longer need',
+  ),
+  event_rate_limited: L('ส่งเร็วไปหน่อยแล้ว พักสักครู่แล้วค่อยพิมพ์ต่อนะ', "You're sending a lot at once. Take a breather, then keep chatting"),
+  slot_taken: L('ห้องนี้มีอีเวนต์ประจำสัปดาห์เวลานี้อยู่แล้ว ลองเลือกเวลาอื่นนะ', 'This room already has a weekly event at that time. Try another time'),
   image_rate_limited: L('ส่งรูปเยอะไปหน่อยแล้ว พักสักครู่แล้วค่อยส่งต่อนะ', "That's a lot of photos for now. Take a short break, then send more"),
   intent_limit: L('ชวนเล่นได้ทีละ 3 โพสต์นะ เอาอันเก่าลงก่อนแล้วค่อยโพสต์ใหม่', 'You can have 3 invites at a time. Take an old one down first, then post again'),
   intent_full: L('ตี้นี้เต็มแล้ว ไว้รอบหน้ามาด้วยกันนะ', "This group's full. Catch the next one!"),

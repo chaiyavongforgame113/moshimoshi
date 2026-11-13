@@ -4,16 +4,19 @@ import { useDeferredValue, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { KineticText } from '@/components/motion'
 import { Avatar, Button, PageHeader, ShowMore, tabId, tabPanelId, Tabs, Zone, type TabItem } from '@/components/ui'
-import { useDataReady, useRooms, useSessions } from '@/data/hooks'
+import { useDataReady, useEvents, useRooms } from '@/data/hooks'
+import { eventPhase } from '@/lib/events'
 import { L, loc, t } from '@/lib/i18n'
 import { fadeUp, spring, stagger } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import type { MochiColor, Room } from '@/lib/types'
+import { EventsBoard, eventsMatching } from '@/pages/events/EventsBoard'
+import { groupEvents, openByRoom, useEventsNow } from '@/pages/events/lib'
 import { ListSkeleton } from '@/pages/people/Skeleton'
 import { LiveDot } from './bits'
 import { useRoomToggle } from './LeaveRoom'
 import { RoomCard } from './list/RoomCard'
-import { eventSession, liveFirst, roomMatches, sortByEvent } from './roomData'
+import { liveFirst, roomMatches } from './roomData'
 
 type Filter = 'all' | 'mine' | 'events'
 
@@ -26,15 +29,14 @@ const FILTERS: TabItem<Filter>[] = [
   loc<TabItem<Filter>>({ key: 'events', label: L('อีเวนต์', 'Events'), icon: <CalendarHeart size={16} strokeWidth={2.4} /> }),
 ]
 
-/** each tab's rooms sit in a zone of their own colour */
-const LIST_TONE: Record<Filter, MochiColor> = { all: 'butter', mine: 'sky', events: 'lavender' }
+/** each room tab's rooms sit in a zone of their own colour (events have zones of their own) */
+const LIST_TONE: Record<Exclude<Filter, 'events'>, MochiColor> = { all: 'butter', mine: 'sky' }
 
 /** rooms a list shows before "ดูเพิ่ม" */
 const FIRST_ROOMS = 6
 
 function listTitle(filter: Filter) {
   if (filter === 'mine') return t('ห้องที่เข้าแล้ว', 'Rooms you joined')
-  if (filter === 'events') return t('อีเวนต์ตอนนี้และเร็วๆ นี้', 'Events now and coming up')
   return t('ห้องทั้งหมด', 'All rooms')
 }
 
@@ -67,7 +69,10 @@ export default function RoomsPage() {
 function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
   const me = useMoshi((s) => s.me)
   const { toggle, sheet } = useRoomToggle()
-  const sessions = useSessions()
+  const events = useEvents()
+  // the clock flips right when an event opens or closes (room badges, the tab's count)
+  const now = useEventsNow(events)
+  const openEvents = useMemo(() => openByRoom(events, now), [events, now])
   const [params, setParams] = useSearchParams()
   const filter = filterOf(params.get('tab'))
   const setFilter = (next: Filter) =>
@@ -86,12 +91,20 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
   const ordered = useMemo(() => liveFirst(allRooms, me.rooms), [allRooms, me.rooms])
 
   const matching = useMemo(() => {
-    let list: Room[]
-    if (filter === 'mine') list = ordered.filter((r) => me.rooms.includes(r.id))
-    else if (filter === 'events') list = allRooms.filter((r) => eventSession(r.id, sessions)).sort(sortByEvent(sessions))
-    else list = ordered
+    const list = filter === 'mine' ? ordered.filter((r) => me.rooms.includes(r.id)) : ordered
     return list.filter((r) => roomMatches(r, q))
-  }, [filter, ordered, allRooms, sessions, me.rooms, q])
+  }, [filter, ordered, me.rooms, q])
+  const openCount = useMemo(() => events.filter((e) => eventPhase(e, now) === 'open').length, [events, now])
+  const going = useMoshi((s) => s.going)
+  // what the อีเวนต์ tab lists for this search (open + coming up), for the screen-reader count
+  const eventHits = useMemo(() => {
+    if (filter !== 'events' || !q) return 0
+    const g = groupEvents(eventsMatching(events, allRooms, q), now, going)
+    return g.open.length + g.upcoming.length
+  }, [filter, q, events, allRooms, now, going])
+  const onEvents = filter === 'events'
+  // the อีเวนต์ tab counts what's open right now
+  const tabs = FILTERS.map((f) => (f.key === 'events' ? { key: f.key, label: f.label, icon: f.icon, badge: openCount } : f))
   // live counts only change the badges: joining or leaving never moves the card you just tapped
   const rooms = useSteadyOrder(matching, `${filter}:${q}`)
 
@@ -101,7 +114,7 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
       <motion.div variants={stagger(0.06)} initial="hidden" animate="show" className="space-y-3">
         <motion.form variants={fadeUp} role="search" onSubmit={(e) => e.preventDefault()} className="relative">
           <label htmlFor="room-search" className="sr-only">
-            {t('ค้นหาห้อง', 'Search rooms')}
+            {onEvents ? t('ค้นหาอีเวนต์หรือห้อง', 'Search events or rooms') : t('ค้นหาห้อง', 'Search rooms')}
           </label>
           <Search size={20} strokeWidth={2.4} className="pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 text-ink-soft" aria-hidden />
           <input
@@ -109,7 +122,9 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('ค้นหาห้อง เช่น วาโล, อนิเมะ, คาเฟ่', 'Search rooms, e.g. Valo, anime, café')}
+            placeholder={
+              onEvents ? t('ค้นหาอีเวนต์หรือห้อง เช่น ดูหนัง, วาโล', 'Search events or rooms, e.g. movie, Valo') : t('ค้นหาห้อง เช่น วาโล, อนิเมะ, คาเฟ่', 'Search rooms, e.g. Valo, anime, café')
+            }
             autoComplete="off"
             enterKeyHint="search"
             className="glass h-13 w-full rounded-full pr-14 pl-12 text-base text-ink outline-none placeholder:text-ink-faint focus-visible:ring-3 focus-visible:ring-lavender [&::-webkit-search-cancel-button]:hidden"
@@ -134,16 +149,37 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
         </motion.form>
 
         <motion.div variants={fadeUp}>
-          <Tabs items={FILTERS} value={filter} onChange={setFilter} idBase="rooms" className="w-fit max-w-full" />
+          <Tabs items={tabs} value={filter} onChange={setFilter} idBase="rooms" className="w-fit max-w-full" />
         </motion.div>
       </motion.div>
 
       <p className="sr-only" aria-live="polite">
-        {q ? t(`พบ ${rooms.length} ห้องที่ตรงกับ ${q}`, `${rooms.length} ${rooms.length === 1 ? 'room matches' : 'rooms match'} ${q}`) : ''}
+        {!q
+          ? ''
+          : onEvents
+            ? t(`พบ ${eventHits} อีเวนต์ที่ตรงกับ ${q}`, `${eventHits} ${eventHits === 1 ? 'event matches' : 'events match'} ${q}`)
+            : t(`พบ ${rooms.length} ห้องที่ตรงกับ ${q}`, `${rooms.length} ${rooms.length === 1 ? 'room matches' : 'rooms match'} ${q}`)}
       </p>
 
       <div className="mt-5" role="tabpanel" id={tabPanelId('rooms', filter)} aria-labelledby={tabId('rooms', filter)}>
-        {rooms.length > 0 ? (
+        {filter === 'events' ? (
+          <motion.div key="events" variants={fadeUp} initial="hidden" animate="show">
+            <EventsBoard
+              query={q}
+              empty={
+                <EmptyState
+                  filter="events"
+                  query={q}
+                  onClear={() => setQuery('')}
+                  onBrowse={() => {
+                    setQuery('')
+                    setFilter('all')
+                  }}
+                />
+              }
+            />
+          </motion.div>
+        ) : rooms.length > 0 ? (
           <motion.div key={filter} variants={fadeUp} initial="hidden" animate="show">
             <Zone
               tone={LIST_TONE[filter]}
@@ -160,9 +196,7 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
                 listClassName="grid gap-3 md:grid-cols-2 md:gap-4 md:[&>li:last-child:nth-child(odd)]:col-span-2"
                 itemClassName="min-w-0"
                 moreLabel={(n) => t(`ดูห้องเพิ่ม (อีก ${n})`, `Show more rooms (${n} more)`)}
-                render={(r) => (
-                  <RoomCard room={r} me={me} joined={me.rooms.includes(r.id)} onToggle={() => toggle(r)} showSession={filter === 'events'} />
-                )}
+                render={(r) => <RoomCard room={r} me={me} joined={me.rooms.includes(r.id)} onToggle={() => toggle(r)} openEvent={openEvents.get(r.id)} />}
               />
             </Zone>
           </motion.div>
@@ -209,11 +243,13 @@ function useSteadyOrder(list: Room[], key: string): Room[] {
 function EmptyState({ filter, query, onClear, onBrowse }: { filter: Filter; query: string; onClear: () => void; onBrowse: () => void }) {
   const searching = !!query
   const title = searching
-    ? t(`ยังไม่เจอห้องที่ตรงกับ “${query}”`, `No rooms match “${query}” yet`)
+    ? filter === 'events'
+      ? t(`ยังไม่เจออีเวนต์ที่ตรงกับ “${query}”`, `No events match “${query}” yet`)
+      : t(`ยังไม่เจอห้องที่ตรงกับ “${query}”`, `No rooms match “${query}” yet`)
     : filter === 'mine'
       ? t('ยังไม่ได้เข้าห้องไหนเลย', "You haven't joined any rooms yet")
       : filter === 'events'
-        ? t('ยังไม่มีอีเวนต์ตอนนี้', 'No events right now')
+        ? t('ยังไม่มีอีเวนต์ที่เปิดหรือกำลังจะเปิด', 'No events open or coming up')
         : t('ตอนนี้ยังเงียบๆ อยู่', "It's quiet right now")
   const body = searching
     ? filter === 'all'
@@ -222,7 +258,7 @@ function EmptyState({ filter, query, onClear, onBrowse }: { filter: Filter; quer
     : filter === 'mine'
       ? t('เข้าห้องที่ชอบไว้ แล้วห้องจะมารออยู่ตรงนี้ กลับมาคุยต่อได้ทุกเมื่อ', "Join rooms you like and they'll wait for you here, ready whenever you are")
       : filter === 'events'
-        ? t('เดี๋ยวจะมีรอบคุยใหม่ๆ มาอีกนะ ระหว่างนี้แวะไปทักเพื่อนในห้องก่อนก็ได้', 'New sessions are on the way. Meanwhile, pop into a room and say hi')
+        ? t('เดี๋ยวจะมีอีเวนต์ใหม่ๆ มาอีกนะ ระหว่างนี้แวะไปทักเพื่อนในห้องก่อนก็ได้', 'New events are on the way. Meanwhile, pop into a room and say hi')
         : t('ยังไม่มีห้องให้ดูตอนนี้ แวะกลับมาใหม่นะ', 'No rooms to show yet. Check back soon')
   const reduce = useReducedMotion()
   return (

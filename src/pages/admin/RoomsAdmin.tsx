@@ -1,13 +1,20 @@
 // /admin/rooms: staff create, edit and delete rooms (public.rooms; policies in
 // supabase/migrations/20261110000001_room_admin_photos_open_age.sql). Photo rights and hosts are set
 // inside each room, on its members tab.
-import { ArrowLeft, ImagePlus, Pencil, Plus, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { ArrowLeft, CalendarClock, CalendarPlus, ImagePlus, Pencil, Plus, Settings2, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import { Button, PageHeader, RoomIcon, Sheet } from '@/components/ui'
+import { Button, PageHeader, RoomIcon, Sheet, ShowMore, Zone, zoneAction } from '@/components/ui'
+import { useEvents, useRooms, useServerFeatures } from '@/data/hooks'
+import { eventWhenLabel } from '@/lib/events'
 import { t } from '@/lib/i18n'
+import { useMoshi } from '@/lib/store'
 import { db } from '@/lib/supabase'
-import type { MochiColor, Room } from '@/lib/types'
+import type { MochiColor, Room, Session } from '@/lib/types'
+import { CreateEventSheet } from '@/pages/events/CreateEvent'
+import { PhaseBadge } from '@/pages/events/EventCard'
+import { eventPath, liveOrSoon, useEventsNow } from '@/pages/events/lib'
+import { ManageEventSheet } from '@/pages/events/ManageEvent'
 import { AdminRoomPerms } from '@/pages/rooms/room/roomPhotos'
 
 interface RoomRow {
@@ -75,8 +82,9 @@ export function RoomsConsole() {
           </Button>
         </div>
       )}
+      <EventsConsole />
       {!rooms && !error && <p className="mt-6 text-ink-soft">{t('กำลังโหลด…', 'Loading…')}</p>}
-      <ul className="mt-4 space-y-3">
+      <ul className="mt-6 space-y-3">
         {rooms?.map((r) => (
           <li key={r.id} className="card flex flex-wrap items-center gap-3 p-4">
             <RoomIcon room={asRoom(r)} size={52} />
@@ -241,5 +249,93 @@ function RoomForm({ initial, isNew, onSaved }: { initial: RoomRow; isNew: boolea
       </div>
       {!isNew && r.is_lobby && <p className="text-xs text-ink-soft">{t('ห้องหลักลบไม่ได้ เพราะคนใหม่ทุกคนเข้ามาที่นี่', "The lobby can't be deleted: every newcomer lands here")}</p>}
     </div>
+  )
+}
+
+/**
+ * Staff: every room's open and upcoming events, with "จัดการ" (cancel, stop the weekly repeat) on
+ * each, and "สร้างอีเวนต์" (the wizard asks which room).
+ */
+function EventsConsole() {
+  const features = useServerFeatures()
+  const events = useEvents()
+  const rooms = useRooms()
+  const now = useEventsNow(events)
+  const list = useMemo(() => liveOrSoon(events, now), [events, now])
+  const byId = useMemo(() => new Map(rooms.map((r) => [r.id, r])), [rooms])
+  const notify = useMoshi((s) => s.notify)
+  const [creating, setCreating] = useState(false)
+  const [managing, setManaging] = useState<Session | null>(null)
+
+  const create = (
+    <button type="button" onClick={() => setCreating(true)} aria-haspopup="dialog" className={zoneAction}>
+      <CalendarPlus size={16} strokeWidth={2.4} aria-hidden />
+      <span className="max-[400px]:sr-only">{t('สร้างอีเวนต์', 'Create event')}</span>
+    </button>
+  )
+
+  return (
+    <Zone
+      tone="lavender"
+      className="mt-4"
+      icon={<CalendarClock size={18} strokeWidth={2.4} />}
+      title={t('อีเวนต์', 'Events')}
+      note={t('เปิดอยู่และกำลังจะเปิด ทุกห้อง', 'Open and coming up, in every room')}
+      action={features.events && list.length > 0 ? create : undefined}
+    >
+      {!features.events ? (
+        <p className="text-sm text-ink-soft">
+          {t('อีเวนต์จะใช้ได้เมื่ออัปเดตฐานข้อมูล (migration อีเวนต์) แล้ว', 'Events switch on once the database has the events migration')}
+        </p>
+      ) : list.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 py-4 text-center">
+          <p className="text-ink-soft">{t('ยังไม่มีอีเวนต์ที่เปิดหรือกำลังจะเปิด', 'No events open or coming up')}</p>
+          <Button icon={<CalendarPlus size={18} aria-hidden />} onClick={() => setCreating(true)}>
+            {t('สร้างอีเวนต์แรก', 'Create the first event')}
+          </Button>
+        </div>
+      ) : (
+        <ShowMore
+          items={list}
+          initial={5}
+          getKey={(s) => s.id}
+          listClassName="space-y-2"
+          moreLabel={(n) => t(`ดูอีเวนต์เพิ่ม (อีก ${n})`, `Show more events (${n} more)`)}
+          render={(s) => {
+            const room = byId.get(s.roomId)
+            return (
+              <div className="flex flex-wrap items-center gap-3 rounded-3xl border border-line bg-white p-3">
+                {room && <RoomIcon room={room} size={40} />}
+                <div className="min-w-0 flex-[1_1_12rem]">
+                  <Link to={eventPath(s.id)} className="block font-display font-semibold [overflow-wrap:anywhere] text-ink underline-offset-4 hover:underline">
+                    {s.title}
+                  </Link>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-soft">
+                    <span>
+                      {room?.name ?? s.roomId} · {eventWhenLabel(s.startsAt, now)}
+                      {s.repeatsWeekly ? t(' · ทุกสัปดาห์', ' · weekly') : ''}
+                    </span>
+                    <PhaseBadge session={s} now={now} />
+                  </p>
+                </div>
+                <Button size="sm" variant="secondary" icon={<Settings2 size={15} aria-hidden />} onClick={() => setManaging(s)} className="ml-auto">
+                  {t('จัดการ', 'Manage')}
+                  <span className="sr-only">{t(` ${s.title}`, `: ${s.title}`)}</span>
+                </Button>
+              </div>
+            )
+          }}
+        />
+      )}
+      <ManageEventSheet session={managing} onClose={() => setManaging(null)} />
+      <CreateEventSheet
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={() => {
+          setCreating(false)
+          notify(t('สร้างอีเวนต์แล้ว!', 'Event created!'))
+        }}
+      />
+    </Zone>
   )
 }

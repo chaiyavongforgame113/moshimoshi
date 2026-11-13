@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { isLive } from '@/lib/supabase'
-import type { ChatMessage, DailyQuestion, Intent, Room, Session, User } from '@/lib/types'
-import { DAILY_QUESTIONS, INTENTS, ROOM_MESSAGES, ROOMS, SESSIONS, USERS } from './mock'
+import type { ChatMessage, DailyQuestion, Intent, Room, ServerFeatures, Session, User, WaveAnswers } from '@/lib/types'
+import { DAILY_QUESTIONS, EVENT_MESSAGES, INTENTS, ROOM_MESSAGES, ROOMS, SESSIONS, USERS, WAVE_ANSWERS } from './mock'
 
 /**
  * Shared, read-mostly data that comes from the server in live mode
@@ -23,7 +23,15 @@ export interface CatalogData {
   people: User[]
   /** intents posted by other people (mine live in useMoshi.myIntents) */
   intents: Intent[]
+  /**
+   * Sessions / events: every one loaded, cancelled and finished ones too (an event page needs them
+   * until its chat hides, 24 h after the end). useSessions() keeps the old view: upcoming and live only.
+   */
   sessions: Session[]
+  /** live mode: sessions fetched by id that the server doesn't have (or won't show) */
+  missingSessions: string[]
+  /** live mode: sessions whose fetch by id failed (offline): the event page offers a retry, a reconnect retries */
+  failedSessions: string[]
   questions: DailyQuestion[]
   /** room chat history per room (server rows in live mode, seeded lines in demo) */
   roomMessages: Record<string, ChatMessage[]>
@@ -31,6 +39,12 @@ export interface CatalogData {
   roomStats: Record<string, { members: number; online: number }>
   /** live mode: who said "เหมือนกัน!" to each of my profile stories (prompt key → user ids) */
   storySames: Record<string, string[]>
+  /** event chat history per session (live: the ones opened, from the server; demo: seeded lines) */
+  eventMessages: Record<string, ChatMessage[]>
+  /** other people's "จูนคลื่น" picks by user id (mine live in useMoshi.wave) */
+  waveAnswers: Record<string, WaveAnswers>
+  /** server pieces from newer migrations (live: switched on by the first load that finds them; demo: all on) */
+  features: ServerFeatures
 }
 
 export interface CatalogState extends CatalogData {
@@ -45,10 +59,15 @@ const DEMO: CatalogData = {
   people: USERS,
   intents: INTENTS,
   sessions: SESSIONS,
+  missingSessions: [],
+  failedSessions: [],
   questions: DAILY_QUESTIONS,
   roomMessages: ROOM_MESSAGES,
   roomStats: Object.fromEntries(ROOMS.map((r) => [r.id, { members: r.memberCount, online: r.onlineCount }])),
   storySames: {},
+  eventMessages: EVENT_MESSAGES,
+  waveAnswers: WAVE_ANSWERS,
+  features: { events: true, waveQuiz: true },
 }
 
 /** live mode starts empty and fills in after sign-in */
@@ -60,10 +79,15 @@ export const LIVE_EMPTY: CatalogData = {
   people: [],
   intents: [],
   sessions: [],
+  missingSessions: [],
+  failedSessions: [],
   questions: [],
   roomMessages: {},
   roomStats: {},
   storySames: {},
+  eventMessages: {},
+  waveAnswers: {},
+  features: { events: false, waveQuiz: false },
 }
 
 export const useCatalog = create<CatalogState>()((set) => ({

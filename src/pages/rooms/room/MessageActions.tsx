@@ -64,8 +64,11 @@ const FOOTER = 'sticky bottom-0 -mx-5 bg-cream/90 px-5 pt-3 pb-1 backdrop-blur'
 
 const blockLabel = (name?: string) => (name ? t(`บล็อก${name}`, `Block ${name}`) : t('บล็อกคนนี้', 'Block this person'))
 
-/** One sheet for the whole room chat: what to do about someone else's message. */
-export function MessageSheet({ roomId, target, onClose }: { roomId: string; target: MessageTarget | null; onClose: () => void }) {
+/** Sends a report about one message (the room chat, or an event's chat); shows how it went itself (a toast). */
+export type ReportMessage = (message: ChatMessage, reason: string, details?: string) => void
+
+/** One sheet for a whole chat (a room's or an event's): what to do about someone else's message. */
+export function MessageSheet({ target, onClose, onReport }: { target: MessageTarget | null; onClose: () => void; onReport: ReportMessage }) {
   // the last message stays on screen while the sheet slides away; each opening starts on the menu
   const [last, setLast] = useState(target)
   const [step, setStep] = useState<Step>('menu')
@@ -87,7 +90,7 @@ export function MessageSheet({ roomId, target, onClose }: { roomId: string; targ
         : blockLabel(name)
   return (
     <Sheet open={!!target} onClose={onClose} title={title} width={480}>
-      {shown && <Body key={round} roomId={roomId} target={shown} step={step} onStep={setStep} onClose={onClose} />}
+      {shown && <Body key={round} onReport={onReport} target={shown} step={step} onStep={setStep} onClose={onClose} />}
     </Sheet>
   )
 }
@@ -103,20 +106,19 @@ function WhileOpen({ className, children }: { className?: string; children: Reac
 }
 
 function Body({
-  roomId,
+  onReport,
   target,
   step,
   onStep,
   onClose,
 }: {
-  roomId: string
+  onReport: ReportMessage
   target: MessageTarget
   step: Step
   onStep: (step: Step) => void
   onClose: () => void
 }) {
   const { message, name, color } = target
-  const reportRoomMessage = useMoshi((s) => s.reportRoomMessage)
   const blockUser = useMoshi((s) => s.blockUser)
   const blocked = useMoshi((s) => s.blocked.includes(message.userId))
   const reduce = useReducedMotion()
@@ -147,7 +149,7 @@ function Body({
     if (reported.current || reason === null || !canSend || tooSoon()) return
     reported.current = true
     // the store shows how it went (a toast), so the sheet can go
-    reportRoomMessage(roomId, message.id, REASONS[reason].value, details.trim() || undefined)
+    onReport(message, REASONS[reason].value, details.trim() || undefined)
     onClose()
   }
   const block = () => {
@@ -412,7 +414,8 @@ function Quote({ message, name, color, clamp }: { message: ChatMessage; name?: s
   )
 }
 
-function ActionRow({
+/** A big tappable row in a sheet's menu: icon bubble, title, one line under it. */
+export function ActionRow({
   buttonRef,
   icon,
   tint,
@@ -420,7 +423,7 @@ function ActionRow({
   note,
   onClick,
 }: {
-  buttonRef: Ref<HTMLButtonElement>
+  buttonRef?: Ref<HTMLButtonElement>
   icon: ReactNode
   /** the icon bubble's colour */
   tint: string

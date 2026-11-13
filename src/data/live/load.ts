@@ -1,5 +1,21 @@
 import { db } from '@/lib/supabase'
-import { latestPerRoom, pairKey, putAnswerSame, putChatMember, putChatMessage, putChatSame, putJoin, putMember, putMessageSame, putPromptSame, putRsvp, type Cache } from './cache'
+import { WAVE_IDS } from '@/data/wave'
+import {
+  latestPerRoom,
+  pairKey,
+  putAnswerSame,
+  putChatMember,
+  putChatMessage,
+  putChatSame,
+  putEventMessage,
+  putJoin,
+  putMember,
+  putMessageSame,
+  putPromptSame,
+  putRsvp,
+  putWave,
+  type Cache,
+} from './cache'
 import { features } from './features'
 import type {
   AnswerRow,
@@ -8,6 +24,7 @@ import type {
   ChatMessageRow,
   ChatRow,
   ChatSameRow,
+  EventMessageRow,
   IntentJoinRow,
   IntentRow,
   MessageSameRow,
@@ -19,6 +36,7 @@ import type {
   RoomRow,
   RsvpRow,
   SessionRow,
+  WaveAnswerRow,
 } from './rows'
 import { ONLINE_WINDOW_MIN } from './map'
 import { isServerId } from './sample'
@@ -31,6 +49,12 @@ type Res = PromiseLike<{ data: unknown; error: unknown }>
 
 export const ROOM_HISTORY = 50
 const CHAT_HISTORY = 200
+/** an event chat lasts at most 4 hours: its newest lines up to this many */
+const EVENT_HISTORY = 500
+/** sessions loaded at sign-in: ended up to this long ago (their chat stays readable 24 h after the end) */
+const SESSIONS_BACK_MS = 36 * 3600_000
+/** …and starting up to this far ahead (events can be set up to 60 days ahead) */
+const SESSIONS_AHEAD_MS = 61 * 86_400_000
 const CHUNK = 80
 /** the API's default cap on rows per response (anything past it is dropped silently) */
 const PAGE = 1000
@@ -87,8 +111,8 @@ export async function loadAll(c: Cache): Promise<void> {
       q
         .from('sessions')
         .select('*')
-        .gte('starts_at', new Date(now - 6 * 3600_000).toISOString())
-        .lte('starts_at', new Date(now + 8 * 86_400_000).toISOString())
+        .gte('starts_at', new Date(now - SESSIONS_BACK_MS).toISOString())
+        .lte('starts_at', new Date(now + SESSIONS_AHEAD_MS).toISOString())
         .order('starts_at'),
     ),
     rows<QuestionRow>(q.from('daily_questions').select('*').lte('day', bangkokDate(now)).order('day', { ascending: false }).limit(100)),
@@ -111,7 +135,7 @@ export async function loadAll(c: Cache): Promise<void> {
   const chatIds = myChats.map((m) => m.chat_id)
   const myRooms = myMemberships.map((m) => m.room_id)
 
-  const [joins, rsvps, answers, answerSames, chats, chatMembers, chatMsgs, promptSames] = await Promise.all([
+  const [joins, rsvps, answers, answerSames, chats, chatMembers, chatMsgs, promptSames, events, wave] = await Promise.all([
     inChunksAll<IntentJoinRow>(intentIds, (s, from, to) =>
       q.from('intent_joins').select('intent_id,user_id').in('intent_id', s).order('intent_id').order('user_id').range(from, to),
     ),
@@ -135,6 +159,8 @@ export async function loadAll(c: Cache): Promise<void> {
     inChunks<ChatMemberRow>(chatIds, (s) => q.from('chat_members').select('*').in('chat_id', s)),
     inChunks<ChatMessageRow>(chatIds, (s) => q.from('chat_messages').select('*').in('chat_id', s).order('created_at', { ascending: false }).limit(1000)),
     loadPromptSames(),
+    hasEventChats(),
+    loadWave([c.me, ...profiles.map((p) => p.id)]),
     ...myRooms.map((r) => loadRoomHistory(c, r)),
   ])
 
@@ -147,6 +173,9 @@ export async function loadAll(c: Cache): Promise<void> {
   chatMsgs.forEach((m) => putChatMessage(c, m))
   promptSames?.forEach((r) => putPromptSame(c, r, true))
   features.promptSames = !!promptSames
+  features.events = events
+  wave?.forEach((r) => putWave(c, r, true))
+  features.waveQuiz = !!wave
 
   const msgIds = chatMsgs.map((m) => m.id)
   const sames = await inChunks<ChatSameRow>(msgIds, (s) => q.from('chat_message_sames').select('id,message_id,user_id').in('message_id', s))
@@ -173,11 +202,85 @@ async function loadPromptSames(): Promise<PromptSameRow[] | undefined> {
     return await allRows<PromptSameRow>((from, to) => db().from('prompt_sames').select('id,profile_id,prompt_key,user_id').order('id').range(from, to))
   } catch (err) {
     // only "no such table" means it isn't set up yet; anything else is a failed load (retried like the rest)
-    const code = (err as { code?: string } | null)?.code
-    if (code !== 'PGRST205' && code !== '42P01') throw err
+    if (!missingTable(err)) throw err
     console.info('[moshi] story reactions stay on this device until prompt_sames is set up', err)
     return undefined
   }
+}
+
+/** Only "no such table" means a later migration hasn't run yet; anything else is a failed load. */
+function missingTable(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code
+  return code === 'PGRST205' || code === '42P01'
+}
+
+/** Is event_messages there (20261114000001_room_events.sql)? It comes with the new sessions columns. */
+async function hasEventChats(): Promise<boolean> {
+  try {
+    await rows(db().from('event_messages').select('id').limit(1))
+    return true
+  } catch (err) {
+    if (!missingTable(err)) throw err
+    console.info('[moshi] event chats are off until 20261114000001_room_events.sql runs', err)
+    return false
+  }
+}
+
+/**
+ * "จูนคลื่น" picks of these people (the bank's questions only). undefined: wave_answers isn't there
+ * yet (20261114000002_wave_quiz.sql), so picks stay on this device.
+ */
+export async function loadWave(userIds: string[]): Promise<WaveAnswerRow[] | undefined> {
+  const ids = [...new Set(userIds)].filter(isServerId)
+  if (!ids.length) return []
+  const q = db()
+  try {
+    return await inChunksAll<WaveAnswerRow>(ids, (s, from, to) =>
+      q
+        .from('wave_answers')
+        .select('user_id,question_id,choice')
+        .in('user_id', s)
+        .in('question_id', [...WAVE_IDS])
+        .order('user_id')
+        .order('question_id')
+        .range(from, to),
+    )
+  } catch (err) {
+    if (!missingTable(err)) throw err
+    console.info('[moshi] "จูนคลื่น" picks stay on this device until wave_answers is set up', err)
+    return undefined
+  }
+}
+
+/** Sessions by id (an event opened from a link, outside the sign-in window) with their RSVPs. Returns the ids found. */
+export async function loadSessions(c: Cache, ids: string[]): Promise<string[]> {
+  const wanted = [...new Set(ids)].filter(isServerId)
+  if (!wanted.length) return []
+  const q = db()
+  const found = await inChunks<SessionRow>(wanted, (s) => q.from('sessions').select('*').in('id', s))
+  found.forEach((s) => c.sessions.set(s.id, s))
+  const rsvps = await inChunksAll<RsvpRow>(
+    found.map((s) => s.id),
+    (s, from, to) => q.from('session_rsvps').select('session_id,user_id').in('session_id', s).order('session_id').order('user_id').range(from, to),
+  )
+  rsvps.forEach((r) => putRsvp(c, r, true))
+  return found.map((s) => s.id)
+}
+
+/** An event's chat: its newest EVENT_HISTORY lines (the server hides it 24 h after the event ends). */
+export async function loadEventMessages(c: Cache, sessionId: string): Promise<EventMessageRow[]> {
+  const list = await rows<EventMessageRow>(
+    db().from('event_messages').select('*').eq('session_id', sessionId).order('created_at', { ascending: false }).limit(EVENT_HISTORY),
+  )
+  // a fresh copy: lines deleted meanwhile go
+  c.eventMsgs.get(sessionId)?.forEach((_, id) => c.msgEvent.delete(id))
+  c.eventMsgs.set(sessionId, new Map())
+  list.forEach((m) => putEventMessage(c, m))
+  await ensureProfiles(
+    c,
+    list.map((m) => m.user_id),
+  )
+  return list
 }
 
 /**

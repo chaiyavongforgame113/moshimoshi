@@ -1,24 +1,26 @@
 import { motion } from 'motion/react'
-import { CalendarClock, Sparkles } from 'lucide-react'
+import { ChevronRight, Sparkles } from 'lucide-react'
 import { Link } from 'react-router'
 import { TiltCard, TiltGlare } from '@/components/motion'
 import { RoomIcon, TagChip } from '@/components/ui'
-import { usePeople, useSessions } from '@/data/hooks'
+import { usePeople } from '@/data/hooks'
 import { TAG_BY_ID } from '@/data/tags'
 import { MOCHI } from '@/lib/colors'
 import { t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
-import type { Room, User } from '@/lib/types'
-import { AvatarStack, HostBadge, JoinButton, LiveDot, PresenceLine } from '../bits'
-import { eventSession, kindredMembers, roomMembers, sessionWhen, sharedRoomTags } from '../roomData'
+import type { Room, Session, User } from '@/lib/types'
+import { OpenDot } from '@/pages/events/EventCard'
+import { useEventHref } from '@/pages/events/lib'
+import { AvatarStack, HostBadge, JoinButton, PresenceLine } from '../bits'
+import { kindredMembers, roomMembers, sharedRoomTags } from '../roomData'
 
 interface CardProps {
   room: Room
   me: User
   joined: boolean
   onToggle: () => void
-  /** "อีเวนต์" tab: surface the session happening now, else the next one */
-  showSession?: boolean
+  /** an event open in this room right now: a small live badge that goes straight in */
+  openEvent?: Session
 }
 
 // Whole card is clickable through the stretched title link; buttons sit above it (z-10).
@@ -48,13 +50,12 @@ function KindredLine({ room, me }: { room: Room; me: User }) {
   )
 }
 
-export function RoomCard({ room, me, joined, onToggle, showSession }: CardProps) {
+export function RoomCard({ room, me, joined, onToggle, openEvent }: CardProps) {
   const p = MOCHI[room.color]
   const members = roomMembers(room.id, usePeople())
-  const sessions = useSessions()
   const shared = sharedRoomTags(room, me)
   const tags = [...shared, ...room.tags.filter((t) => !shared.includes(t))].slice(0, 3)
-  const session = showSession ? eventSession(room.id, sessions) : undefined
+  const eventHref = useEventHref()
   return (
     <TiltCard className="h-full" glare={false}>
       <motion.article
@@ -96,13 +97,19 @@ export function RoomCard({ room, me, joined, onToggle, showSession }: CardProps)
           </div>
         )}
 
-        {session && (
-          <p className="mt-3 flex items-center gap-2 rounded-2xl px-3 py-2 text-sm text-ink" style={{ background: p.light }}>
-            {session.live ? <LiveDot className="mx-0.5" /> : <CalendarClock size={16} strokeWidth={2.4} className="shrink-0" aria-hidden />}
-            <span className="min-w-0 truncate">
-              <b className="font-display">{session.live ? t('กำลังจัดอยู่ตอนนี้', 'Happening now') : sessionWhen(session)}</b> · {session.title}
+        {openEvent && (
+          // above the card's own link (z-10): this one goes straight into the event
+          <Link
+            to={eventHref(openEvent)}
+            className="relative z-10 mt-3 flex min-h-11 items-center gap-2 rounded-2xl px-3 py-2 text-sm text-ink transition-[filter] hover:brightness-[0.97]"
+            style={{ background: MOCHI.mint.light, boxShadow: `inset 0 0 0 1.5px ${MOCHI.mint.base}` }}
+          >
+            <OpenDot className="mx-0.5" />
+            <span className="min-w-0 flex-1 truncate">
+              <b className="font-display">{t('อีเวนต์เปิดอยู่', 'Event open')}</b> · {openEvent.title}
             </span>
-          </p>
+            <ChevronRight size={16} strokeWidth={2.4} aria-hidden className="shrink-0" />
+          </Link>
         )}
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">

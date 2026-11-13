@@ -122,6 +122,18 @@ const sections = (): LegalSection[] => [
         <List>
           <li>{t('ห้องที่เข้าร่วม ข้อความในห้อง และคำตอบ “คำถามวันนี้”', "Rooms you join, your messages in rooms, and your answers to “Today's question”")}</li>
           <li>{t('โพสต์หาเพื่อน การกดเข้าร่วมโพสต์ และการตอบรับรอบคุย', '“Looking for” posts, joining posts, and RSVPs to sessions')}</li>
+          <li>
+            {t(
+              'อีเวนต์ที่คุณตั้ง (ถ้าคุณเป็นพี่โมชิประจำห้อง) และข้อความในแชทของอีเวนต์ ซึ่งส่งได้เฉพาะตอนอีเวนต์เปิดอยู่ ผู้ใช้ที่เข้าสู่ระบบแล้วเห็นข้อความได้จนถึง 24 ชั่วโมงหลังอีเวนต์จบ ยกเว้นคนที่คุณบล็อกหรือบล็อกคุณ หลังจากนั้นจะไม่มีใครเห็นในแอปอีก และเราลบข้อความออกจากระบบเมื่อครบ 30 วันหลังอีเวนต์จบ การส่งข้อความในอีเวนต์จะนับว่าคุณกด “ไปด้วย” อีเวนต์นั้น',
+              "Events you set up (if you host a room) and your messages in an event's chat, which can be sent only while the event is open. Signed-in users can see these messages until 24 hours after the event ends, except people you have blocked or who have blocked you. After that nobody can see them in the app, and we delete them 30 days after the event ends. Sending a message in an event also marks you as “Going” to it",
+            )}
+          </li>
+          <li>
+            {t(
+              'คำตอบ “จูนคลื่น” (ข้างที่คุณเลือกในแต่ละคำถามแบบเลือก 1 จาก 2) ผู้ใช้ที่เข้าสู่ระบบแล้วเห็นได้ ยกเว้นคนที่คุณบล็อกหรือบล็อกคุณ เราใช้คำตอบนี้คำนวณระดับสัญญาณถูกคอ และแสดงว่าคุณกับอีกคนตอบตรงกันกี่ข้อ เราเก็บคำตอบล่าสุดไม่เกิน 200 ข้อต่อคน คำตอบที่เก่ากว่านั้นจะถูกแทนที่ คุณเปลี่ยนคำตอบได้ทุกเมื่อ',
+              "Your “This or that” answers (the side you pick in each two-choice question). Signed-in users can see them, except people you have blocked or who have blocked you. We use them to work out vibe signal levels and to show how many answers you and someone else share. We keep your latest 200 answers at most, and older ones are replaced. You can change an answer at any time",
+            )}
+          </li>
           <li>{t('การกด “เหมือนกัน!” บนข้อความหรือคำตอบของคนอื่น', "Tapping “Same!” on other people's messages or answers")}</li>
           <li>
             {t(
@@ -224,8 +236,8 @@ const sections = (): LegalSection[] => [
               'Showing your profile and suggesting people with similar interests (the 5-level vibe signal)',
             )}
             data={t(
-              'โปรไฟล์ เรื่องที่สนใจ คำตอบคำถามชวนคุย ช่วงเวลาออนไลน์ ห้องที่เข้าร่วม โพสต์หาเพื่อน',
-              'Profile, interests, answers to conversation-starter questions, online times, rooms joined, looking-for posts',
+              'โปรไฟล์ เรื่องที่สนใจ คำตอบคำถามชวนคุย คำตอบ “จูนคลื่น” ช่วงเวลาออนไลน์ ห้องที่เข้าร่วม โพสต์หาเพื่อน',
+              'Profile, interests, answers to conversation-starter questions, “This or that” answers, online times, rooms joined, looking-for posts',
             )}
             basis={t('จำเป็นเพื่อปฏิบัติตามสัญญา (มาตรา 24(3))', 'Necessary to perform our contract with you (Section 24(3))')}
           />
@@ -277,8 +289,8 @@ const sections = (): LegalSection[] => [
         </ul>
         <P>
           {t(
-            'เราไม่ใช้ระบบอัตโนมัติอ่าน คัดกรอง หรือให้คะแนนข้อความของคุณ ระดับสัญญาณถูกคอคำนวณจากโปรไฟล์ เรื่องที่สนใจ คำตอบคำถามชวนคุย ช่วงเวลาออนไลน์ ห้องที่เข้าร่วม และโพสต์หาเพื่อนเท่านั้น ไม่ได้ใช้ข้อความในห้องหรือแชท และไม่มีการตัดสินใจอัตโนมัติที่มีผลทางกฎหมายต่อคุณ',
-            'We do not use automated systems to read, screen or score your messages. Vibe signal levels are calculated only from profiles, interests, answers to conversation-starter questions, online times, rooms joined and looking-for posts. They do not use messages in rooms or chats, and no automated decision with legal effect on you is made.',
+            'เราไม่ใช้ระบบอัตโนมัติอ่าน คัดกรอง หรือให้คะแนนข้อความของคุณ ระดับสัญญาณถูกคอคำนวณจากโปรไฟล์ เรื่องที่สนใจ คำตอบคำถามชวนคุย คำตอบ “จูนคลื่น” ช่วงเวลาออนไลน์ ห้องที่เข้าร่วม และโพสต์หาเพื่อนเท่านั้น ไม่ได้ใช้ข้อความในห้อง แชท หรืออีเวนต์ และไม่มีการตัดสินใจอัตโนมัติที่มีผลทางกฎหมายต่อคุณ',
+            'We do not use automated systems to read, screen or score your messages. Vibe signal levels are calculated only from profiles, interests, answers to conversation-starter questions, “This or that” answers, online times, rooms joined and looking-for posts. They do not use messages in rooms, chats or events, and no automated decision with legal effect on you is made.',
           )}
         </P>
         <Note>ตรวจว่าการคำนวณสัญญาณถูกคอจากโปรไฟล์ถือเป็นการทำโปรไฟล์ (profiling) ที่ต้องแจ้งเพิ่มหรือไม่</Note>
@@ -323,6 +335,12 @@ const sections = (): LegalSection[] => [
             {t(
               'ข้อความในห้อง คำตอบคำถามวันนี้ โพสต์หาเพื่อน และการกด “เหมือนกัน!” ผู้ใช้ที่เข้าสู่ระบบแล้วเห็นได้',
               "Room messages, answers to Today's question, looking-for posts and “Same!” taps are visible to signed-in users.",
+            )}
+          </li>
+          <li>
+            {t(
+              'ข้อความในแชทของอีเวนต์ และคำตอบ “จูนคลื่น” ผู้ใช้ที่เข้าสู่ระบบแล้วเห็นได้ ยกเว้นคนที่คุณบล็อกหรือบล็อกคุณ ข้อความในอีเวนต์เห็นได้จนถึง 24 ชั่วโมงหลังอีเวนต์จบเท่านั้น',
+              "Messages in event chats and your “This or that” answers are visible to signed-in users, except people you have blocked or who have blocked you. Event messages are visible only until 24 hours after the event ends.",
             )}
           </li>
           <li>
@@ -446,6 +464,18 @@ const sections = (): LegalSection[] => [
             {t(
               'รูปในแชท 1:1: ถูกลบไปพร้อมข้อความรูปนั้น เมื่อคนส่งลบรูปออกจากแชท หรือเมื่อบัญชีของคนส่งถูกลบ ถ้ารูปถูกรายงาน เราเก็บรูปไว้กับรายงานจนกว่าทีมงานจะปิดเรื่อง แม้คนส่งจะลบรูปหรือลบบัญชีไปก่อนแล้วก็ตาม',
               "Photos in 1:1 chats: deleted together with their message, when the sender deletes the photo from the chat or when the sender's account is deleted. If a photo is reported, we keep it with the report until our team closes the case, even if the sender deleted the photo or their account before then.",
+            )}
+          </li>
+          <li>
+            {t(
+              'ข้อความในแชทของอีเวนต์: ซ่อนจากแอป 24 ชั่วโมงหลังอีเวนต์จบ และถูกลบออกจากระบบเมื่อครบ 30 วันหลังอีเวนต์จบ หรือเมื่อบัญชีของคนส่งถูกลบ แล้วแต่อย่างไหนถึงก่อน ยกเว้นสำเนาข้อความที่เคยถูกรายงาน',
+              "Event chat messages: hidden from the app 24 hours after the event ends, and deleted 30 days after the event ends or when the sender's account is deleted, whichever comes first, except copies of messages that were reported.",
+            )}
+          </li>
+          <li>
+            {t(
+              'คำตอบ “จูนคลื่น”: เก็บคำตอบล่าสุดไม่เกิน 200 ข้อต่อคน คำตอบที่เก่ากว่านั้นถูกแทนที่ และถูกลบทั้งหมดเมื่อบัญชีถูกลบ',
+              '“This or that” answers: we keep your latest 200 at most, older ones are replaced, and all of them are deleted when your account is deleted.',
             )}
           </li>
           <li>

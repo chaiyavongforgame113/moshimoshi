@@ -8,6 +8,7 @@ import { useCatalog } from '@/data/catalog'
 import { CATEGORY_LABEL, hasChatStyle, isAllDay, ONLINE_LABEL, OWN_PROMPT_ID, CHAT_STYLES, promptLabel, sameTag, TAG_BY_ID, tagKey, tagOf, tagsInText } from '@/data/tags'
 import { L, loc, t, texts } from './i18n'
 import { roomInLang, sessionInLang } from './i18n/catalog'
+import { agreement, QUIZ_MIN_COMMON } from './waveQuiz'
 import type {
   Intent,
   IntentRole,
@@ -85,10 +86,12 @@ const WEIGHTS: Record<Part, number> = { interests: 0.35, quiz: 0.25, story: 0.1,
 /** The most a pair of matching posts can add on top of the profile score. */
 const INTENT_BONUS = 0.08
 /**
- * Score → level. Measured on the demo people (scratch check, quiz not played yet): each person
- * sees about 2–8 others at "ถูกคอ" or above, and level 5 stays rare. With the optional screens
- * skipped (no loves, stories, online times or chat style) it's about the same (2–6 each), since
- * a part either side left empty is left out of the score rather than counted as zero.
+ * Score → level. Measured on the demo people (scratch check): each person sees about 2–8 others
+ * at "ถูกคอ" or above, and level 5 stays rare. With the optional screens skipped (no loves,
+ * stories, online times or chat style) it's about the same (2–6 each), since a part either side
+ * left empty is left out of the score rather than counted as zero. The quiz doesn't shift the
+ * spread: with everyone's picks in, each demo person sees 2–7 (mean 4.4, 4.0 without); the demo
+ * me sees 8 before playing and 6–11 after one round of random picks (median 8, 200 runs).
  */
 const LEVEL_CUTS: [number, SignalLevel][] = [
   [0.6, 5],
@@ -98,8 +101,8 @@ const LEVEL_CUTS: [number, SignalLevel][] = [
 ]
 /** The highest a pair with nothing to talk about can reach (inside "พอคุยได้", under MIN_LEVEL). */
 const NO_TOPIC_CAP = 0.25
-/** Fewer common quiz picks than this tells us nothing yet. */
-const QUIZ_MIN = 3
+/** A quiz reason only when the picks clearly line up (6 of 8 and up), not at chance (half). */
+const QUIZ_REASON_SHARE = 0.7
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
 
@@ -158,20 +161,15 @@ interface QuizFit {
   asked: number
 }
 
-/** null until both have answered at least QUIZ_MIN of the same questions (then the part is left out, not zero). */
+/**
+ * Agreement over the questions both answered (src/lib/waveQuiz.ts). null until that's at least
+ * QUIZ_MIN_COMMON: then the part is left out of the wave and the rest renormalized, not counted as zero.
+ */
 function quizScore(a?: WaveAnswers, b?: WaveAnswers): QuizFit | null {
-  if (!a || !b) return null
-  let asked = 0
-  let same = 0
-  for (const [q, pick] of Object.entries(a)) {
-    const theirs = b[q]
-    if (theirs === undefined) continue
-    asked++
-    if (theirs === pick) same++
-  }
-  if (asked < QUIZ_MIN) return null
-  // two-way picks agree half the time by chance, so chance lands near an ordinary part (~0.33) and 8/8 at 1
-  return { score: clamp01((same / asked - 0.25) / 0.75), same, asked }
+  const { same, common } = agreement(a, b)
+  if (common < QUIZ_MIN_COMMON) return null
+  // two-way picks agree half the time by chance, so chance lands near an ordinary part (~0.33) and all-same at 1
+  return { score: clamp01((same / common - 0.25) / 0.75), same, asked: common }
 }
 
 // ---------- chat styles ----------
@@ -396,7 +394,7 @@ function scorePair(me: User, them: User, myIntents: Intent[], { stats, intents, 
     return !!room && !room.isLobby
   })
   const going = extras.going ?? []
-  const theirEvents = catalog.sessions.filter((s) => s.hostId === them.id && going.includes(s.id)).map(sessionInLang)
+  const theirEvents = catalog.sessions.filter((s) => s.hostId === them.id && !s.cancelled && going.includes(s.id)).map(sessionInLang)
   const context = clamp01((sharedRooms.length + theirEvents.length) * 0.5)
   const hit = intentScore(myIntents, theirIntents, me, them)
   // only two matching posts earn the bonus; "their post is about something I like" is a reason, not a bonus
@@ -450,7 +448,7 @@ function scorePair(me: User, them: User, myIntents: Intent[], { stats, intents, 
       weight: 0.5 + 0.1 * common.length,
     })
   }
-  if (quiz && quiz.same / quiz.asked >= 0.6) {
+  if (quiz && quiz.same / quiz.asked >= QUIZ_REASON_SHARE) {
     reasons.push({
       kind: 'quiz',
       text: t(`จูนคลื่นตรงกัน ${quiz.same}/${quiz.asked} ข้อ`, `You picked the same side on ${quiz.same} of ${quiz.asked} this-or-thats`),

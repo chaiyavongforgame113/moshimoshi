@@ -14,6 +14,7 @@ import { ageLabel, useIsMine } from './lib'
 import { HelloSent } from './profile/HelloSent'
 import { ProfileHero } from './profile/ProfileHero'
 import { AboutBlock, IntentsBlock, PromptsBlock, RoomsBlock, TagsBlock, WhyBlock } from './profile/ProfileSections'
+import { QuizBlock } from './profile/QuizBlock'
 import { SafetyMenu } from './profile/SafetyMenu'
 import { SendMoshiSheet } from './profile/SendMoshiSheet'
 import { PageSkeleton } from './Skeleton'
@@ -100,6 +101,9 @@ function Profile({ user, match }: { user: User; match: MatchResult }) {
             <WhyBlock match={match} user={user} showOpener={!chat} cta={<div ref={ctaBox}>{cta(false)}</div>} />
             <Reveal>
               <TagsBlock match={match} user={user} />
+            </Reveal>
+            <Reveal>
+              <QuizBlock user={user} />
             </Reveal>
             <Reveal>
               <AboutBlock user={user} />

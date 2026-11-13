@@ -1,4 +1,7 @@
-import type { Chat, ChatMessage, DailyQuestion, Intent, Room, Session, User } from '@/lib/types'
+import { L, loc, type Txt } from '@/lib/i18n'
+import type { Chat, ChatMessage, DailyQuestion, Intent, Room, Session, User, WaveAnswers, WaveChoice } from '@/lib/types'
+import { dayOffset, hhmm, messageTime } from './live/time'
+import { WAVE_IDS } from './wave'
 
 // ------------------------------------------------------------------
 // Rooms — the launch set from the design doc, plus the "listening corner"
@@ -573,17 +576,136 @@ export const INTENTS: Intent[] = [
 ]
 
 // ------------------------------------------------------------------
-// Sessions ("รอบคุย")
+// Sessions ("รอบคุย" / events). Times are real moments counted from when the page loaded, so the
+// demo always has one event open now, one opening in about 40 minutes and one that ended an hour
+// ago (its chat still readable, its next week already listed).
 // ------------------------------------------------------------------
+const LOADED = Date.now()
+const MIN = 60_000
+const DAY = 86_400_000
+const BKK = 7 * 3_600_000
+
+/** `minutes` from page load, on the minute */
+const fromNow = (minutes: number) => Math.floor((LOADED + minutes * MIN) / MIN) * MIN
+/** `days` from today at a Bangkok wall-clock time ("20:30") */
+function bangkokAt(days: number, time: string): number {
+  const [h, m] = time.split(':').map(Number)
+  const today = Math.floor((LOADED + BKK) / DAY) * DAY - BKK
+  return today + days * DAY + (h * 60 + m) * MIN
+}
+
+type DemoSession = Omit<Session, 'dayOffset' | 'time' | 'live' | 'startsAt' | 'endsAt' | 'description'> & {
+  start: number
+  description?: Txt
+}
+
+function demoSession({ start, description, ...s }: DemoSession): Session {
+  const startsAt = new Date(start).toISOString()
+  const end = start + s.durationMin * MIN
+  return loc<Session>({
+    ...s,
+    startsAt,
+    endsAt: new Date(end).toISOString(),
+    dayOffset: dayOffset(startsAt, LOADED),
+    time: hhmm(startsAt),
+    live: LOADED >= start && LOADED < end,
+    ...(description ? { description } : {}),
+  })
+}
+
+const SERIES_LISTEN = 'demo-listen-weekly'
+const LISTEN_START = fromNow(-120)
+const LISTEN_ABOUT = L('พื้นที่ปลอดภัยให้เล่าเรื่องเหนื่อยๆ ของวันนี้ ไม่ต้องรีบ ไม่มีใครตัดสิน', 'A safe space to share what wore you out today. No rush, no judgment')
+
 export const SESSIONS: Session[] = [
-  { id: 's-1', roomId: 'cowork', title: 'Pomodoro คืนวันธรรมดา', dayOffset: 0, time: '20:00', durationMin: 90, going: 9, hostId: 'u-nat', live: true },
-  { id: 's-2', roomId: 'anime', title: 'ซีซันนี้ดูอะไร ทิ้งอะไร', dayOffset: 0, time: '21:00', durationMin: 60, going: 23, hostId: 'u-mint' },
-  { id: 's-3', roomId: 'listen', title: 'วันนี้เหนื่อยไหม เล่าให้ฟังหน่อย', dayOffset: 0, time: '21:30', durationMin: 60, going: 14, hostId: 'u-plaifon' },
-  { id: 's-4', roomId: 'game-night', title: 'Valo ดึกชิลๆ ไม่ toxic', dayOffset: 0, time: '22:30', durationMin: 90, going: 17, hostId: 'u-boss' },
-  { id: 's-5', roomId: 'moved-bkk', title: 'ร้านลับใกล้ที่ทำงาน', dayOffset: 1, time: '19:30', durationMin: 60, going: 11, hostId: 'u-tonkhao' },
-  { id: 's-6', roomId: 'lang', title: 'คุยเสียง ไทย ⇄ ญี่ปุ่น', dayOffset: 2, time: '20:30', durationMin: 60, going: 8, hostId: 'u-yuki' },
-  { id: 's-7', roomId: 'music', title: 'แชร์เพลย์ลิสต์ประจำสัปดาห์', dayOffset: 3, time: '20:00', durationMin: 60, going: 12, hostId: 'u-bow' },
+  demoSession({
+    id: 's-1',
+    roomId: 'cowork',
+    title: 'Pomodoro คืนวันธรรมดา',
+    description: L('ทำงานไปด้วยกันรอบละ 25 นาที พัก 5 นาทีมาคุยกันในแชท', 'Work together in 25-minute rounds, then take 5 to chat'),
+    start: fromNow(-25),
+    durationMin: 90,
+    going: 9,
+    goingIds: ['u-nat', 'u-jedi', 'u-kim', 'u-see'],
+    hostId: 'u-nat',
+    createdBy: 'u-nat',
+  }),
+  demoSession({
+    id: 's-2',
+    roomId: 'anime',
+    title: 'ซีซันนี้ดูอะไร ทิ้งอะไร',
+    description: L(
+      'มาเล่าว่าซีซันนี้ดูเรื่องไหนต่อ เรื่องไหนพอแค่นี้ จะสปอยล์ต้องเตือนก่อนนะ',
+      "Tell us what you're still watching this season and what you dropped. Warn before spoilers!",
+    ),
+    start: fromNow(40),
+    durationMin: 60,
+    going: 23,
+    goingIds: ['u-mint', 'u-ice', 'u-jedi', 'u-yuki', 'u-bow'],
+    hostId: 'u-mint',
+    createdBy: 'u-mint',
+  }),
+  demoSession({
+    id: 's-3',
+    roomId: 'listen',
+    title: 'วันนี้เหนื่อยไหม เล่าให้ฟังหน่อย',
+    description: LISTEN_ABOUT,
+    start: LISTEN_START,
+    durationMin: 60,
+    going: 14,
+    goingIds: ['u-plaifon', 'u-kim', 'u-prae', 'u-fah'],
+    hostId: 'u-plaifon',
+    createdBy: 'u-plaifon',
+    repeatsWeekly: true,
+    seriesId: SERIES_LISTEN,
+  }),
+  demoSession({
+    id: 's-4',
+    roomId: 'game-night',
+    title: 'Valo ดึกชิลๆ ไม่ toxic',
+    start: fromNow(180),
+    durationMin: 90,
+    going: 17,
+    goingIds: ['u-boss', 'u-jedi', 'u-nat'],
+    hostId: 'u-boss',
+    createdBy: 'u-boss',
+  }),
+  demoSession({ id: 's-5', roomId: 'moved-bkk', title: 'ร้านลับใกล้ที่ทำงาน', start: bangkokAt(1, '19:30'), durationMin: 60, going: 11, goingIds: ['u-tonkhao', 'u-see'], hostId: 'u-tonkhao' }),
+  demoSession({ id: 's-6', roomId: 'lang', title: 'คุยเสียง ไทย ⇄ ญี่ปุ่น', start: bangkokAt(2, '20:30'), durationMin: 60, going: 8, goingIds: ['u-yuki', 'u-ice'], hostId: 'u-yuki' }),
+  demoSession({ id: 's-7', roomId: 'music', title: 'แชร์เพลย์ลิสต์ประจำสัปดาห์', start: bangkokAt(3, '20:00'), durationMin: 60, going: 12, goingIds: ['u-bow', 'u-poom'], hostId: 'u-bow' }),
+  demoSession({
+    id: 's-3-next',
+    roomId: 'listen',
+    title: 'วันนี้เหนื่อยไหม เล่าให้ฟังหน่อย',
+    description: LISTEN_ABOUT,
+    start: LISTEN_START + 7 * DAY,
+    durationMin: 60,
+    going: 3,
+    goingIds: ['u-plaifon'],
+    hostId: 'u-plaifon',
+    createdBy: 'u-plaifon',
+    repeatsWeekly: true,
+    seriesId: SERIES_LISTEN,
+  }),
 ]
+
+const at = (minutes: number) => messageTime(new Date(fromNow(minutes)).toISOString(), LOADED)
+
+/** Event chats: what was said in the open event and in the one that ended an hour ago. */
+export const EVENT_MESSAGES: Record<string, ChatMessage[]> = {
+  's-1': [
+    { id: 'e1-1', userId: 'u-nat', text: 'รอบแรกเริ่มแล้วนะ วันนี้ทุกคนจะทำอะไรกันบ้าง', at: at(-24) },
+    { id: 'e1-2', userId: 'u-jedi', text: 'ปั่นสไลด์พรีเซนต์พรุ่งนี้ ช่วยกันเป็นกำลังใจหน่อย', at: at(-22) },
+    { id: 'e1-3', userId: 'u-kim', text: 'อ่านหนังสือสอบ บทที่ 4 สู้ๆ', at: at(-21), sameBy: ['u-nat'] },
+    { id: 'e1-4', userId: 'u-nat', text: 'พักห้านาที ใครทำได้ตามเป้าบ้าง', at: at(-3) },
+  ],
+  's-3': [
+    { id: 'e3-1', userId: 'u-plaifon', text: 'วันนี้เป็นยังไงกันบ้าง เล่าเรื่องเล็กๆ ก็ได้นะ', at: at(-118) },
+    { id: 'e3-2', userId: 'u-kim', text: 'งานเยอะมาก แต่ได้กินข้าวกับเพื่อนตอนเที่ยง ดีขึ้นเยอะ', at: at(-110), sameBy: ['u-prae'] },
+    { id: 'e3-3', userId: 'u-prae', text: 'ขอบคุณที่มีที่แบบนี้นะ รู้สึกเบาขึ้นเลย', at: at(-70) },
+    { id: 'e3-4', userId: 'u-plaifon', text: 'ขอบคุณทุกคนที่มาเล่าให้ฟังนะ สัปดาห์หน้าเจอกันเวลาเดิม', at: at(-61), sameBy: ['u-kim', 'u-fah'] },
+  ],
+}
 
 // ------------------------------------------------------------------
 // Daily questions ("คำถามวันนี้")
@@ -689,3 +811,17 @@ export const MOOD_ROOMS: Record<string, string[]> = {
   tired: ['listen', 'cowork'],
   lonely: ['listen', 'lobby'],
 }
+
+// ------------------------------------------------------------------
+// "จูนคลื่น" picks of the demo people (every question in the bank, so whatever round I play
+// lines up with theirs). Fixed per person and question, so the demo looks the same every visit.
+// ------------------------------------------------------------------
+function demoPick(userId: string, questionId: string): WaveChoice {
+  let h = 7
+  for (const ch of `${userId}:${questionId}`) h = (h * 31 + ch.charCodeAt(0)) | 0
+  return (Math.abs(h) >> 3) % 2 === 0 ? 0 : 1
+}
+
+export const WAVE_ANSWERS: Record<string, WaveAnswers> = Object.fromEntries(
+  USERS.map((u) => [u.id, Object.fromEntries(WAVE_IDS.map((id) => [id, demoPick(u.id, id)]))]),
+)

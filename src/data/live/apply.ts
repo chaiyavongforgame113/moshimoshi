@@ -5,23 +5,27 @@ import {
   chatSameKey,
   dropChat,
   dropChatMessage,
+  dropEventMessage,
   dropRoomMessage,
   pairKey,
   putAnswerSame,
   putChatMember,
   putChatMessage,
   putChatSame,
+  putEventMessage,
   putJoin,
   putMember,
   putMessageSame,
   putPromptSame,
   putRoomMessage,
   putRsvp,
+  putWave,
   type Cache,
 } from './cache'
 import {
   apply,
   chatsPatch,
+  eventMessagesPatch,
   intentsPatch,
   mePatch,
   myAnswersPatch,
@@ -29,12 +33,14 @@ import {
   myIntentsPatch,
   myJoinsPatch,
   mySamesPatch,
+  myWavePatch,
   peoplePatch,
   questionsPatch,
   roomMessagesPatch,
   roomsPatch,
   sessionsPatch,
   storySamesPatch,
+  wavePatch,
 } from './publish'
 import type { Change, ChatRow } from './rows'
 
@@ -82,10 +88,36 @@ export function applyToCache(c: Cache, ch: Change, fx: ApplyEffects) {
       if (!del && ch.row.user_id !== me) fx.needProfiles([ch.row.user_id])
       return
     }
+    case 'sessions': {
+      // a new event, one that was cancelled or stopped repeating (or went with its room)
+      if (del) {
+        c.sessions.delete(ch.row.id)
+        c.rsvps.delete(ch.row.id)
+      } else c.sessions.set(ch.row.id, { ...c.sessions.get(ch.row.id), ...ch.row })
+      apply(sessionsPatch(c), del ? myGoingPatch(c) : {})
+      return
+    }
     case 'session_rsvps':
       putRsvp(c, ch.row, !del)
       apply(sessionsPatch(c), ch.row.user_id === me ? myGoingPatch(c) : {})
+      // someone new is going: make sure we know who (or that they're hidden)
+      if (!del && ch.row.user_id !== me) fx.needProfiles([ch.row.user_id])
       return
+    case 'event_messages': {
+      // only chats being watched keep their lines (see watchEvent in sync)
+      const sessionId = del ? dropEventMessage(c, ch.row.id) : putEventMessage(c, ch.row) ? ch.row.session_id : undefined
+      if (!sessionId) return
+      const r = eventMessagesPatch(c, [sessionId])
+      apply(r.cat, r.mine)
+      if (!del && ch.row.user_id !== me) fx.needProfiles([ch.row.user_id])
+      return
+    }
+    case 'wave_answers': {
+      putWave(c, ch.row, !del)
+      if (ch.row.user_id === me) apply({}, myWavePatch(c))
+      else apply(wavePatch(c), {})
+      return
+    }
     case 'daily_answers': {
       if (![...c.questions.values()].some((q) => q.id === ch.row.question_id)) return
       const key = pairKey(ch.row.question_id, ch.row.user_id)

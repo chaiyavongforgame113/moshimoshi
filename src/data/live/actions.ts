@@ -1,9 +1,10 @@
 import { useCatalog } from '@/data/catalog'
 import { chatImagePath, forgetLocalImage, rememberLocalImage } from '@/data/chatImages'
+import { checkEventDraft, EVENT_LIMITS, eventDraftIssueText } from '@/lib/events'
 import { L, t, tx } from '@/lib/i18n'
 import type { MoshiActions, MoshiGet, MoshiSet } from '@/lib/store'
 import type { ChatMessage, Intent, User } from '@/lib/types'
-import { aliasId, emitChange, isTmp, pendingConsent, requestReload, resolveId, tmpId, unblocking, unsending } from './bus'
+import { aliasId, emitChange, isTmp, pendingConsent, pendingWave, requestReload, resolveId, tmpId, unblocking, unsending } from './bus'
 import { features } from './features'
 import { intentColumns, profilePatch, type LiveChat } from './map'
 import type { ChatRow, IntentRow } from './rows'
@@ -22,6 +23,8 @@ const PHOTOS_LOCKED = L('ยังส่งรูปไม่ได้นะ ต
 const NOT_IN_ROOM = L('เข้าห้องก่อนถึงจะคุยในห้องได้นะ', 'Join the room to chat here')
 const REPORT_SENT = L('ส่งรายงานแล้ว ทีมงานจะดูให้เร็วที่สุดนะ', 'Report sent. The team will look at it soon')
 const REPORT_FAILED = L('ส่งรายงานไม่สำเร็จ ลองใหม่อีกครั้งนะ', "Couldn't send the report. Try again")
+const EVENTS_SOON = L('อีเวนต์กำลังจะมาเร็วๆ นี้นะ รอแป๊บเดียว', 'Events are coming soon. Hang on a little')
+const EVENT_HOSTS_ONLY = L('ตั้งหรือยกเลิกอีเวนต์ได้เฉพาะพี่โมชิประจำห้องกับทีมงานนะ', "Only the room's hosts and the team can set up or cancel events")
 
 const noop = () => {}
 
@@ -60,6 +63,8 @@ export function liveActions(set: MoshiSet, get: MoshiGet, demo: MoshiActions): P
   }
   const stamp = () => messageTime(new Date().toISOString())
   const removedTmpIntents = new Set<string>()
+  /** the "kept on this device" line for "จูนคลื่น" picks was shown (until a pick saves again) */
+  let offlineToldWave = false
   /** room joins still on their way: a line sent right after joining waits for its join */
   const joining = new Map<string, Promise<unknown>>()
   const trackJoin = (roomId: string, p: Promise<unknown>) => {
@@ -195,6 +200,20 @@ export function liveActions(set: MoshiSet, get: MoshiGet, demo: MoshiActions): P
 
   /** `id` in or out of a list (an explicit value, so a late rollback can't flip a newer tap) */
   const setIn = (list: string[], id: string, on: boolean) => (on ? (list.includes(id) ? list : [...list, id]) : list.filter((x) => x !== id))
+
+  /** An event and every other week of its weekly series that we hold (ids). */
+  const seriesOf = (sessionId: string): string[] => {
+    const sessions = useCatalog.getState().sessions
+    const series = sessions.find((x) => x.id === sessionId)?.seriesId
+    return [sessionId, ...(series ? sessions.filter((x) => x.seriesId === series && x.id !== sessionId).map((x) => x.id) : [])]
+  }
+
+  /** Why creating or cancelling an event was refused: hosts and staff only, else the server's key. */
+  const eventManageError = (err: unknown): string | undefined => {
+    const key = (err as { message?: string } | null)?.message?.trim()
+    if (key === 'not_allowed') return tx(EVENT_HOSTS_ONLY)
+    return knownError(err)
+  }
 
   return {
     completeOnboarding: (patch) => saveMe(patch, true),
@@ -580,6 +599,139 @@ export function liveActions(set: MoshiSet, get: MoshiGet, demo: MoshiActions): P
           emitChange({ table: 'chat_members', type: 'UPDATE', row: { chat_id: chat.id, user_id: me, last_read_at: new Date().toISOString() } }),
         )
         .catch((err) => console.warn('[moshi] mark read failed', err))
+    },
+
+    sendEventMessage: (sessionId, text) => {
+      if (!isServerId(sessionId)) return demo.sendEventMessage(sessionId, text)
+      if (!features.events) return get().notify(tx(EVENTS_SOON))
+      const body = text.trim().slice(0, EVENT_LIMITS.messageMax)
+      const me = myId()
+      if (!body || !me) return
+      const mid = tmpId()
+      const edit = (fn: (list: ChatMessage[]) => ChatMessage[]) =>
+        set((s) => ({ eventMessages: { ...s.eventMessages, [sessionId]: fn(s.eventMessages[sessionId] ?? []) } }))
+      edit((list) => [...list, { id: mid, localId: mid, userId: me, text: body, at: stamp() }])
+      // saying something counts as being there ("ไปด้วย"): quietly, and only if not going yet
+      if (!get().going.includes(sessionId)) {
+        set((s) => ({ going: setIn(s.going, sessionId, true) }))
+        w.rsvp(sessionId, me)
+          .then(() => emitChange({ table: 'session_rsvps', type: 'INSERT', row: { session_id: sessionId, user_id: me } }))
+          .catch(() => set((s) => ({ going: setIn(s.going, sessionId, false) })))
+      }
+      w.insertEventMessage(sessionId, me, body)
+        .then((row) => {
+          // the server's id from now on; localId stays (React keys)
+          aliasId(mid, row.id)
+          edit((list) => list.map((m) => (m.id === mid ? { ...m, id: row.id } : m)))
+          emitChange({ table: 'event_messages', type: 'INSERT', row })
+        })
+        .catch((err) => {
+          edit((list) => list.filter((m) => m.id !== mid))
+          // closed, not started, cancelled, suspended: the server says which
+          fail(err, knownError(err))
+        })
+    },
+
+    createEvent: async (draft) => {
+      if (!features.events) {
+        get().notify(tx(EVENTS_SOON))
+        return undefined
+      }
+      const issue = checkEventDraft(draft)
+      if (issue) {
+        get().notify(eventDraftIssueText(issue))
+        return undefined
+      }
+      let id: string
+      try {
+        id = await w.createEvent(draft)
+      } catch (err) {
+        fail(err, eventManageError(err))
+        return undefined
+      }
+      // made: from here on it's a success, even if reading it back fails (the event page fetches it
+      // by id then, and realtime or the next reload brings it into the lists)
+      try {
+        // this one, and next week's when it repeats (the server makes it right away)
+        const [row] = await w.sessionRows([id])
+        const rows = row?.plan_id != null ? await w.sessionsOfPlan(row.plan_id) : row ? [row] : []
+        rows.forEach((r) => emitChange({ table: 'sessions', type: 'INSERT', row: r }))
+      } catch (err) {
+        console.warn('[moshi] new event made, reading it back failed', err)
+      }
+      return id
+    },
+
+    cancelEvent: async (sessionId, alsoStopRepeat = false) => {
+      if (!isServerId(sessionId)) return demo.cancelEvent(sessionId, alsoStopRepeat)
+      // the weeks this may touch, read before the plan goes (its sessions lose their plan_id then)
+      const touched = alsoStopRepeat ? seriesOf(sessionId) : [sessionId]
+      try {
+        await w.cancelEvent(sessionId, alsoStopRepeat)
+        ;(await w.sessionRows(touched)).forEach((row) => emitChange({ table: 'sessions', type: 'UPDATE', row }))
+        return true
+      } catch (err) {
+        fail(err, eventManageError(err))
+        return false
+      }
+    },
+
+    stopRepeat: async (sessionId) => {
+      if (!isServerId(sessionId)) return demo.stopRepeat(sessionId)
+      const touched = seriesOf(sessionId)
+      try {
+        await w.stopRepeat(sessionId)
+        ;(await w.sessionRows(touched)).forEach((row) => emitChange({ table: 'sessions', type: 'UPDATE', row }))
+        return true
+      } catch (err) {
+        fail(err, eventManageError(err))
+        return false
+      }
+    },
+
+    answerWave: (questionId, choice) => {
+      const me = myId()
+      const before = get().wave[questionId]
+      set((s) => ({ wave: { ...s.wave, [questionId]: choice }, waveOwner: me || s.waveOwner }))
+      // without wave_answers (or still signing in) the pick stays on this device; sync uploads it later
+      if (!features.waveQuiz || !me) return
+      const tap: { choice: number; waiting?: boolean } = { choice }
+      pendingWave.set(questionId, tap)
+      const latest = () => pendingWave.get(questionId) === tap
+      w.upsertWave(me, [{ question_id: questionId, choice }])
+        .then((rows) => {
+          if (latest()) pendingWave.delete(questionId)
+          offlineToldWave = false
+          rows.forEach((row) => emitChange({ table: 'wave_answers', type: 'INSERT', row }))
+        })
+        .catch((err) => {
+          // lost on the way (offline, a dropped request): the pick stays on this device and sync
+          // sends it again after the next reload or reconnect. Said once, not once per pick.
+          if (!isRefusal(err)) {
+            console.warn('[moshi] "จูนคลื่น" pick kept on this device for now', err)
+            if (latest()) tap.waiting = true
+            if (!offlineToldWave) {
+              offlineToldWave = true
+              get().notify(
+                t(
+                  'เน็ตหลุดนิดนึง เก็บคำตอบไว้ในเครื่องก่อนนะ ต่อเน็ตได้เมื่อไหร่จะบันทึกให้เอง',
+                  "You're offline for a moment. Your picks are saved on this device and will sync once you're back",
+                ),
+              )
+            }
+            return
+          }
+          // a newer tap on the same question is on its way: that one decides
+          if (!latest()) return fail(err)
+          pendingWave.delete(questionId)
+          set((s) => {
+            const wave = { ...s.wave }
+            if (before === undefined) delete wave[questionId]
+            else wave[questionId] = before
+            return { wave }
+          })
+          fail(err)
+        })
     },
 
     answerQuestion: (questionId, text) => {

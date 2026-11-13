@@ -4,12 +4,14 @@ import { useMemo, useState } from 'react'
 import { Link, Navigate, NavLink, useLocation, useOutlet } from 'react-router'
 import { JellyRipple, Magnetic, RouteTransition } from '@/components/motion'
 import { Avatar, ButtonLink, RoomIcon } from '@/components/ui'
-import { useChats, useDataMode, useDataReady, useRooms, useSessions } from '@/data/hooks'
+import { useChats, useDataMode, useDataReady, useEvents, useRooms } from '@/data/hooks'
+import { eventPhase, formatCountdown } from '@/lib/events'
 import { useInstallPrompt, useIsDesktop, useMediaQuery } from '@/lib/hooks'
 import { displayName, L, loc, t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import type { Room, Session } from '@/lib/types'
+import { useEventHref, useEventsNow } from '@/pages/events/lib'
 import { InstallSheet } from './InstallSheet'
 import { TabTip, useTabTip } from './TabTip'
 
@@ -238,23 +240,28 @@ const RAIL_EVENTS = 3
 const byBusiest = (a: Session, b: Session) => b.going - a.going
 
 /**
- * Wide screens only: a compact "อีเวนต์ที่เปิดอยู่ตอนนี้" card while something is live, nothing
- * otherwise (home already lists events, so the card sits out there). The column itself always
- * stays, so the page keeps the same place between the sidebar and it.
+ * Wide screens only: a compact "อีเวนต์ที่เปิดอยู่ตอนนี้" card while something is open, nothing
+ * otherwise (home already lists events, so the card sits out there; an event's own page doesn't
+ * list itself). The column itself always stays, so the page keeps the same place between the
+ * sidebar and it. Each row goes straight into the event, with the time it has left.
  */
 function RightRail() {
-  const sessions = useSessions()
+  const events = useEvents()
   const rooms = useRooms()
+  // flips right when an event opens or closes
+  const now = useEventsNow(events)
+  const hrefOf = useEventHref()
   const { pathname } = useLocation()
   const home = pathname.replace(/\/$/, '') === '/app'
+  const here = /^\/app\/events\/([^/]+)/.exec(pathname)?.[1]
   const live = useMemo(
     () =>
-      sessions
-        .filter((s) => s.live)
+      events
+        .filter((s) => s.id !== here && eventPhase(s, now) === 'open')
         .sort(byBusiest)
         .map((s) => ({ s, room: rooms.find((r) => r.id === s.roomId) }))
         .filter((x): x is { s: Session; room: Room } => !!x.room),
-    [sessions, rooms],
+    [events, rooms, now, here],
   )
 
   if (home || !live.length) return <div aria-hidden className="w-80 shrink-0" />
@@ -283,12 +290,12 @@ function RightRail() {
         <ul className="mt-3 space-y-2">
           {live.slice(0, RAIL_EVENTS).map(({ s, room }) => (
             <li key={s.id}>
-              <Link to={`/app/rooms/${s.roomId}`} className="flex items-center gap-3 rounded-2xl bg-cream p-3 transition-colors hover:bg-cream-2">
+              <Link to={hrefOf(s, now)} className="flex items-center gap-3 rounded-2xl bg-cream p-3 transition-colors hover:bg-cream-2">
                 <RoomIcon room={room} size={40} />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold">{s.title}</span>
                   <span className="block truncate text-xs text-ink-soft">
-                    {room.name} · {t(`${s.going} คนจะมาร่วม`, `${s.going} going`)}
+                    {room.name} · {formatCountdown(s, now)}
                   </span>
                 </span>
               </Link>

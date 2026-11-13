@@ -3,15 +3,17 @@ import { resetCatalog, useCatalog } from '@/data/catalog'
 import { resetPersonalState, useMoshi } from '@/lib/store'
 import { db, supabase } from '@/lib/supabase'
 import { applyToCache } from './apply'
-import { clearAliases, clearPending, onChange, onReload, resolveId } from './bus'
+import { clearAliases, clearPending, onChange, onReload, pendingWave, resolveId } from './bus'
 import { createCache, putChatMember, type Cache } from './cache'
-import { isNetworkError } from './errors'
+import { isNetworkError, isRefusal } from './errors'
 import { features } from './features'
-import { ensureProfiles, loadAll, loadChat, loadRecentlySeen, loadRoomHistory } from './load'
+import { ensureProfiles, loadAll, loadChat, loadEventMessages, loadRecentlySeen, loadRoomHistory, loadSessions } from './load'
 import {
   apply,
   chatsPatch,
+  eventMessagesPatch,
   intentsPatch,
+  myGoingPatch,
   myIntentsPatch,
   mySamesPatch,
   peoplePatch,
@@ -20,9 +22,11 @@ import {
   roomMessagesPatch,
   roomsPatch,
   sessionsPatch,
+  wavePatch,
 } from './publish'
 import type { Change, LiveTable } from './rows'
-import { markChatRead, touchLastSeen } from './writes'
+import { isServerId } from './sample'
+import { markChatRead, touchLastSeen, upsertWave } from './writes'
 
 /*
  * One live session per signed-in user: realtime → first load → heartbeat.
@@ -51,6 +55,14 @@ const REALTIME: LiveTable[] = [
  * other person after a reload, as before.
  */
 const REALTIME_REACTIONS: LiveTable[] = ['chat_message_sames', 'daily_answer_sames', 'prompt_sames']
+/**
+ * New and cancelled events, and who's going, as they happen (20261114000001_room_events.sql adds
+ * them to the publication). Their own channel, dropped when the first load finds no events yet.
+ * Each open event chat streams on a channel of its own (watchEvent).
+ */
+const REALTIME_EVENTS: LiveTable[] = ['sessions', 'session_rsvps']
+/** "จูนคลื่น" ids are slugs (the database checks the same) */
+const WAVE_ID = /^[a-z0-9-]{1,40}$/
 const HEARTBEAT_MS = 2 * 60_000
 const TICK_MS = 60_000
 /** how long the first load waits for realtime before going ahead (a later SUBSCRIBED catches up) */
@@ -58,11 +70,26 @@ const SUBSCRIBE_WAIT_MS = 4000
 /** a tab hidden longer than this reloads everything when it comes back */
 const STALE_MS = 3 * 60_000
 
+/** An event chat on screen: its history is loaded and its lines stream in while anyone watches. */
+interface EventWatch {
+  users: number
+  channel: RealtimeChannel | null
+  loading: boolean
+  /** asked to load again while a load was running */
+  again: boolean
+}
+
 interface LiveSession {
   cache: Cache
   channels: RealtimeChannel[]
   /** the reaction tables' own channel (dropped if the database can't stream them) */
   reactions: RealtimeChannel | null
+  /** sessions + RSVPs (dropped if the database has no events yet) */
+  events: RealtimeChannel | null
+  eventWatches: Map<string, EventWatch>
+  /** sessions fetched by id (outside the sign-in window): a full reload fetches them again */
+  extraSessions: Set<string>
+  sessionLoads: Map<string, Promise<void>>
   stops: (() => void)[]
   /** changes that arrive while a full reload is running */
   buffer: Change[] | null
@@ -89,6 +116,10 @@ export function startSync(userId: string) {
     cache: createCache(userId),
     channels: [],
     reactions: null,
+    events: null,
+    eventWatches: new Map(),
+    extraSessions: new Set(),
+    sessionLoads: new Map(),
     stops: [],
     buffer: null,
     again: false,
@@ -146,6 +177,7 @@ async function firstLoad(s: LiveSession) {
     if (!alive(s)) return
     // no prompt_sames: the reactions migration hasn't run, so its tables can't stream either
     if (!features.promptSames) dropReactions(s)
+    if (!features.events) dropEvents(s)
     if (s.connected) return
     s.connected = true
     startTimers(s)
@@ -173,11 +205,24 @@ async function refresh(s: LiveSession) {
     await loadAll(fresh)
     // keep the history of rooms opened earlier in this session
     await Promise.all([...s.cache.roomMsgs.keys()].filter((r) => !fresh.roomMsgs.has(r)).map((r) => loadRoomHistory(fresh, r)))
+    // events opened from a link (outside the sign-in window), and the event chats on screen
+    const extra = [...s.extraSessions].filter((id) => !fresh.sessions.has(id))
+    if (extra.length) await loadSessions(fresh, extra)
+    if (features.events) {
+      await Promise.all(
+        [...s.eventWatches.keys()].map((id) => loadEventMessages(fresh, id).catch((err) => console.warn('[moshi] event chat reload failed', err))),
+      )
+    }
     if (wanted.length) await ensureProfiles(fresh, wanted)
     if (!alive(s)) return
     wanted.forEach((id) => s.wanted.delete(id))
     s.cache = fresh
     publishAll(fresh)
+    // picks this device holds that the server doesn't (made offline, or before wave_answers): every
+    // reload sends them, and reconnecting runs a reload
+    if (features.waveQuiz) uploadLocalWave(s)
+    // events whose fetch by id failed earlier get another go
+    useCatalog.getState().failedSessions.forEach((id) => void retrySession(id))
   } finally {
     const buffered = s.buffer ?? []
     s.buffer = null
@@ -234,9 +279,174 @@ function needProfiles(s: LiveSession, ids: string[]) {
       // someone hidden (a block) may have just written, posted or answered: drop it
       const c = s.cache
       const r = roomMessagesPatch(c, c.roomMsgs.keys())
-      apply({ ...peoplePatch(c), ...intentsPatch(c), ...questionsPatch(c), ...r.cat }, { ...r.mine, ...myIntentsPatch(c) })
+      const e = eventMessagesPatch(c, c.eventMsgs.keys())
+      apply(
+        { ...peoplePatch(c), ...intentsPatch(c), ...questionsPatch(c), ...sessionsPatch(c), ...wavePatch(c), ...r.cat, ...e.cat },
+        { ...r.mine, ...e.mine, ...myIntentsPatch(c) },
+      )
     })
     .catch((err) => console.warn('[moshi] profile load failed', err))
+}
+
+// ------------------------------------------------------------------ events
+
+/**
+ * One session by id, for an event page opened from a link outside the sign-in window (no-op in
+ * demo mode or when it's loaded already). Not found: its id goes on the catalog's missingSessions.
+ */
+export function ensureSession(sessionId: string): Promise<void> {
+  const s = current
+  if (!s || !isServerId(sessionId) || s.cache.sessions.has(sessionId)) return Promise.resolve()
+  let p = s.sessionLoads.get(sessionId)
+  if (!p) {
+    const cache = s.cache
+    p = loadSessions(cache, [sessionId])
+      .then((found) => {
+        if (!alive(s)) return
+        if (s.cache !== cache) return void window.setTimeout(() => void ensureSession(sessionId))
+        if (found.length) s.extraSessions.add(sessionId)
+        const missing = useCatalog.getState().missingSessions
+        apply(
+          { ...sessionsPatch(cache), ...(found.length || missing.includes(sessionId) ? {} : { missingSessions: [...missing, sessionId] }) },
+          myGoingPatch(cache),
+        )
+      })
+      .catch((err) => {
+        console.warn('[moshi] event load failed', err)
+        if (!alive(s)) return
+        // the event page shows a retry instead of loading for good; a reconnect retries by itself
+        const failed = useCatalog.getState().failedSessions
+        if (!failed.includes(sessionId)) useCatalog.getState().set({ failedSessions: [...failed, sessionId] })
+      })
+      .finally(() => s.sessionLoads.delete(sessionId))
+    s.sessionLoads.set(sessionId, p)
+  }
+  return p
+}
+
+/** Try again to fetch an event whose fetch failed (the event page's retry button, and every reload). */
+export function retrySession(sessionId: string): Promise<void> {
+  const failed = useCatalog.getState().failedSessions
+  if (failed.includes(sessionId)) useCatalog.getState().set({ failedSessions: failed.filter((id) => id !== sessionId) })
+  return ensureSession(sessionId)
+}
+
+/** (Re)load an event chat's history into the cache and publish it. One load at a time per chat. */
+function loadEventHistory(s: LiveSession, sessionId: string, w: EventWatch) {
+  if (w.loading) {
+    w.again = true
+    return
+  }
+  w.loading = true
+  const cache = s.cache
+  loadEventMessages(cache, sessionId)
+    .then(() => {
+      // a full reload swapped the cache meanwhile: it loads the chats on screen itself
+      if (!alive(s) || s.cache !== cache || s.eventWatches.get(sessionId) !== w) return
+      const r = eventMessagesPatch(cache, [sessionId])
+      apply({ ...r.cat, ...peoplePatch(cache) }, r.mine)
+    })
+    .catch((err) => console.warn('[moshi] event chat failed', err))
+    .finally(() => {
+      w.loading = false
+      if (w.again && alive(s) && s.eventWatches.get(sessionId) === w) {
+        w.again = false
+        loadEventHistory(s, sessionId, w)
+      }
+    })
+}
+
+/**
+ * An event chat is on screen: load its history and stream its lines until the returned function
+ * is called (several screens may watch one chat; the last one out closes it). No-op in demo mode,
+ * before the first load, or while the database has no events yet.
+ */
+export function watchEvent(sessionId: string): () => void {
+  const s = current
+  if (!s || !isServerId(sessionId) || !features.events) return () => {}
+  let w = s.eventWatches.get(sessionId)
+  if (!w) {
+    const watch: EventWatch = { users: 0, channel: null, loading: false, again: false }
+    w = watch
+    s.eventWatches.set(sessionId, watch)
+    void ensureSession(sessionId)
+    try {
+      const ch = db()
+        .channel(`event:${sessionId}:${Math.random().toString(36).slice(2, 10)}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'event_messages', filter: `session_id=eq.${sessionId}` },
+          (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
+            if (!alive(s) || s.eventWatches.get(sessionId) !== watch) return
+            const row = payload.eventType === 'DELETE' ? payload.old : payload.new
+            applyChange(s, { table: 'event_messages', type: payload.eventType, row } as unknown as Change)
+          },
+        )
+      watch.channel = ch
+      s.channels.push(ch)
+      // every (re)join catches up on what was said meanwhile
+      ch.subscribe((status) => {
+        if (status === 'SUBSCRIBED' && alive(s) && s.eventWatches.get(sessionId) === watch) loadEventHistory(s, sessionId, watch)
+      })
+    } catch (err) {
+      console.warn('[moshi] event chat stream failed', err)
+    }
+    // the history shows without waiting for realtime
+    loadEventHistory(s, sessionId, watch)
+  }
+  const watch = w
+  watch.users++
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    if (--watch.users > 0 || s.eventWatches.get(sessionId) !== watch) return
+    s.eventWatches.delete(sessionId)
+    const ch = watch.channel
+    if (ch) {
+      s.channels = s.channels.filter((x) => x !== ch)
+      void supabase?.removeChannel(ch)
+    }
+  }
+}
+
+/**
+ * Picks on this device the server doesn't have yet: made before wave_answers existed, or made while
+ * offline (pendingWave marks those `waiting`; they win over an older pick the server has). Any
+ * other pick the server already has stays as the server has it. One upload at a time.
+ */
+let uploadingWave = false
+function uploadLocalWave(s: LiveSession) {
+  if (uploadingWave) return
+  const c = s.cache
+  const { wave, waveOwner } = useMoshi.getState()
+  if (waveOwner && waveOwner !== c.me) return
+  const server = c.wave.get(c.me)
+  const missing = Object.entries(wave).filter(([q]) => WAVE_ID.test(q) && (!server?.has(q) || !!pendingWave.get(q)?.waiting))
+  if (!missing.length) return
+  // the taps this upload carries: a newer tap meanwhile keeps its own entry
+  const taps = new Map(missing.map(([q]) => [q, pendingWave.get(q)] as const))
+  const settle = () =>
+    taps.forEach((tap, q) => {
+      if (tap && pendingWave.get(q) === tap) pendingWave.delete(q)
+    })
+  uploadingWave = true
+  upsertWave(
+    c.me,
+    missing.map(([question_id, choice]) => ({ question_id, choice })),
+  )
+    .then((rows) => {
+      settle()
+      if (alive(s)) rows.forEach((row) => applyChange(s, { table: 'wave_answers', type: 'INSERT', row }))
+    })
+    .catch((err) => {
+      console.warn('[moshi] could not save the "จูนคลื่น" picks from this device', err)
+      // refused: the server's picks show again on the next publish. Lost on the way: they wait.
+      if (isRefusal(err)) settle()
+    })
+    .finally(() => {
+      uploadingWave = false
+    })
 }
 
 /** A message landed in the chat that's open on screen: it's read already. */
@@ -263,6 +473,15 @@ function applyChange(s: LiveSession, ch: Change) {
 }
 
 // ------------------------------------------------------------------ realtime
+
+/** Stop asking for sessions and RSVPs (the database has no events yet, so they aren't published). */
+function dropEvents(s: LiveSession) {
+  const ch = s.events
+  if (!ch) return
+  s.events = null
+  s.channels = s.channels.filter((c) => c !== ch)
+  void db().removeChannel(ch)
+}
 
 /** Stop asking for the reaction tables (the database can't stream them). */
 function dropReactions(s: LiveSession) {
@@ -304,6 +523,19 @@ function subscribe(s: LiveSession): Promise<void> {
     })
   } catch (err) {
     console.warn('[moshi] live reactions failed', err)
+  }
+
+  // best effort too: without it, new events and RSVPs show after a reload, as before
+  const events = db().channel(`db-events:${topic}`)
+  listen(events, REALTIME_EVENTS)
+  s.channels.push(events)
+  s.events = events
+  try {
+    events.subscribe((status, err) => {
+      if (status === 'CHANNEL_ERROR' && alive(s)) console.info('[moshi] live events: channel error, rejoining', err)
+    })
+  } catch (err) {
+    console.warn('[moshi] live events failed', err)
   }
 
   return new Promise((resolve) => {

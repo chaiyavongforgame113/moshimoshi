@@ -1,10 +1,10 @@
 import { useCatalog, type CatalogData } from '@/data/catalog'
 import { BLANK_ME, useMoshi, type MoshiPolicy, type MoshiState } from '@/lib/store'
-import type { ChatMessage, Room } from '@/lib/types'
-import { isTmp, pendingConsent, resolveId, unblocking, unsending } from './bus'
+import type { ChatMessage, Room, WaveAnswers, WaveChoice } from '@/lib/types'
+import { isTmp, pendingConsent, pendingWave, resolveId, unblocking, unsending } from './bus'
 import { features } from './features'
 import { isActiveIntent, others, pairKey, sortByTime, type Cache } from './cache'
-import { ONLINE_WINDOW_MIN, toChat, toIntent, toMessage, toQuestion, toRoom, toSession, toUser, type LiveChat } from './map'
+import { ONLINE_WINDOW_MIN, toChat, toEventMessage, toIntent, toMessage, toQuestion, toRoom, toSession, toUser, type LiveChat } from './map'
 import { isSample, isServerId, SAMPLE_INTENTS, SAMPLE_PEOPLE } from './sample'
 import { minutesAgo } from './time'
 
@@ -106,13 +106,79 @@ export function myJoinsPatch(c: Cache): MinePatch {
   return { joinedIntentIds: [...local, ...server] }
 }
 
+/** Every session we hold (finished and cancelled ones too: useSessions() narrows it to upcoming and live). */
 export function sessionsPatch(c: Cache): CatPatch {
   const now = Date.now()
   const sessions = [...c.sessions.values()]
-    .filter((s) => Date.parse(s.starts_at) + (s.duration_min ?? 60) * 60_000 > now)
     .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))
-    .map((s) => toSession(s, others(c.rsvps.get(s.id), c.me).length, now))
+    .map((s) => {
+      const going = others(c.rsvps.get(s.id), c.me)
+      return toSession(s, going, visible(c, going), now)
+    })
   return { sessions }
+}
+
+/** Server history for the event chats being watched; also drops my local copies the server now holds. */
+export function eventMessagesPatch(c: Cache, sessionIds: Iterable<string>): { cat: CatPatch; mine: MinePatch } {
+  const now = Date.now()
+  const history = { ...useCatalog.getState().eventMessages }
+  const local = { ...useMoshi.getState().eventMessages }
+  let localChanged = false
+  for (const id of sessionIds) {
+    const held = c.eventMsgs.get(id)
+    if (!held) continue
+    history[id] = sortByTime(held.values())
+      .filter((r) => !c.hidden.has(r.user_id))
+      .map((r) => toEventMessage(r, now))
+    const mine = local[id]
+    if (mine?.some((m) => held.has(m.id))) {
+      local[id] = mine.filter((m) => !held.has(m.id))
+      localChanged = true
+    }
+  }
+  return { cat: { eventMessages: history }, mine: localChanged ? { eventMessages: local } : {} }
+}
+
+const asChoice = (v: number): WaveChoice | undefined => (v === 0 || v === 1 ? v : undefined)
+
+/** Other people's "จูนคลื่น" picks (not anyone in a block relation with me). */
+export function wavePatch(c: Cache): CatPatch {
+  const waveAnswers: Record<string, WaveAnswers> = {}
+  c.wave.forEach((picks, userId) => {
+    if (userId === c.me || c.hidden.has(userId)) return
+    const out: WaveAnswers = {}
+    picks.forEach((v, q) => {
+      const choice = asChoice(v)
+      if (choice !== undefined) out[q] = choice
+    })
+    waveAnswers[userId] = out
+  })
+  return { waveAnswers }
+}
+
+/**
+ * My picks. Without wave_answers: this device's, as they are. With it: the server's, plus a pick
+ * still on its way, plus picks the server has never seen (made before wave_answers existed; sync
+ * uploads those). A pick the server already has wins over an old copy on this device. Picks this
+ * device kept for another account are dropped.
+ */
+export function myWavePatch(c: Cache): MinePatch {
+  const s = useMoshi.getState()
+  const local = !s.waveOwner || s.waveOwner === c.me ? s.wave : {}
+  if (!features.waveQuiz) return { wave: local, waveOwner: c.me }
+  const wave: WaveAnswers = {}
+  c.wave.get(c.me)?.forEach((v, q) => {
+    const choice = asChoice(v)
+    if (choice !== undefined) wave[q] = choice
+  })
+  for (const [q, choice] of Object.entries(local)) {
+    if (pendingWave.has(q) || !(q in wave)) wave[q] = choice
+  }
+  return { wave, waveOwner: c.me }
+}
+
+export function featuresPatch(): CatPatch {
+  return { features: { events: features.events, waveQuiz: features.waveQuiz } }
 }
 
 export function myGoingPatch(c: Cache): MinePatch {
@@ -257,9 +323,25 @@ export function publishAll(c: Cache) {
   const blocked = [...new Set([...useMoshi.getState().blocked, ...c.blocked])].filter((id) => !unblocking.has(id))
   useMoshi.setState({ ...mePatch(c, true), blocked })
   const rooms = roomMessagesPatch(c, c.roomMsgs.keys())
+  const events = eventMessagesPatch(c, c.eventMsgs.keys())
   apply(
-    { ...peoplePatch(c), ...roomsPatch(c), ...intentsPatch(c), ...sessionsPatch(c), ...questionsPatch(c), ...storySamesPatch(c), ...rooms.cat, ready: true, error: null },
     {
+      ...peoplePatch(c),
+      ...roomsPatch(c),
+      ...intentsPatch(c),
+      ...sessionsPatch(c),
+      ...questionsPatch(c),
+      ...storySamesPatch(c),
+      ...rooms.cat,
+      ...events.cat,
+      ...wavePatch(c),
+      ...featuresPatch(),
+      ready: true,
+      error: null,
+    },
+    {
+      ...events.mine,
+      ...myWavePatch(c),
       ...myIntentsPatch(c),
       ...myJoinsPatch(c),
       ...myGoingPatch(c),

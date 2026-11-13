@@ -2,31 +2,9 @@
 import { sameTag, TAG_BY_ID, tagsInText } from '@/data/tags'
 import { getLang, L, t, texts } from '@/lib/i18n'
 import { isLive } from '@/lib/supabase'
-import type { IntentRole, IntentWhen, Room, Session, User } from '@/lib/types'
+import type { IntentRole, IntentWhen, Room, User } from '@/lib/types'
 
 export const roomMembers = (roomId: string, people: User[]): User[] => people.filter((u) => u.rooms.includes(roomId))
-
-const sessionOrder = (s: Session) => s.dayOffset * 1440 + Number(s.time.slice(0, 2)) * 60 + Number(s.time.slice(3, 5))
-
-export function nextSession(roomId: string, sessions: Session[]): Session | undefined {
-  return sessions.filter((s) => s.roomId === roomId).sort((a, b) => sessionOrder(a) - sessionOrder(b))[0]
-}
-
-export const sortBySession = (sessions: Session[]) => (a: Room, b: Room) => {
-  const sa = nextSession(a.id, sessions)
-  const sb = nextSession(b.id, sessions)
-  if (!sa || !sb) return sa ? -1 : sb ? 1 : 0
-  return sessionOrder(sa) - sessionOrder(sb)
-}
-
-export function dayLabel(dayOffset: number): string {
-  if (dayOffset <= 0) return t('วันนี้', 'Today')
-  if (dayOffset === 1) return t('พรุ่งนี้', 'Tomorrow')
-  if (dayOffset === 2) return t('มะรืนนี้', 'In 2 days')
-  return t(`อีก ${dayOffset} วัน`, `In ${dayOffset} days`)
-}
-
-export const sessionWhen = (s: Session) => `${dayLabel(s.dayOffset)} ${s.time}`
 
 /** Room tags I also have, loves first. */
 export function sharedRoomTags(room: Room, me: User): string[] {
@@ -46,21 +24,6 @@ export function kindredMembers(roomId: string, me: User, people: User[]): User[]
 export function liveFirst(rooms: Room[], mine: readonly string[] = []): Room[] {
   const others = (r: Room) => r.onlineCount - (isLive && mine.includes(r.id) ? 1 : 0)
   return [...rooms].sort((a, b) => others(b) - others(a) || Number(!!b.isLobby) - Number(!!a.isLobby))
-}
-
-/** A session in this room that's happening right now. */
-export function liveSession(roomId: string, sessions: Session[]): Session | undefined {
-  return sessions.find((s) => s.roomId === roomId && s.live)
-}
-
-/** The session a room's event card shows: one happening now, else the next one. */
-export const eventSession = (roomId: string, sessions: Session[]): Session | undefined =>
-  liveSession(roomId, sessions) ?? nextSession(roomId, sessions)
-
-/** Events tab order: sessions live right now first, then the soonest. */
-export const sortByEvent = (sessions: Session[]) => {
-  const bySession = sortBySession(sessions)
-  return (a: Room, b: Room) => Number(!!liveSession(b.id, sessions)) - Number(!!liveSession(a.id, sessions)) || bySession(a, b)
 }
 
 /** Matches name / tagline / tag labels, and Thai slang via tagsInText ("วาโล" → Valorant). */

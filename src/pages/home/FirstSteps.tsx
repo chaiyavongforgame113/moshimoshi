@@ -16,9 +16,13 @@ export interface FirstStepsState {
   chatted: boolean
   /** (b) I said something in a room */
   roomSaid: boolean
-  /** (c) every piece of my wave is filled in ("คลื่นชัดขึ้น"), which is what sharpens the matching */
-  waveClear: boolean
-  /** my wave, for step (c)'s next piece */
+  /**
+   * (c) I played "จูนคลื่น" (its piece of my wave: one round's worth of picks). With fewer than 3
+   * interests nobody can reach "ถูกคอ" yet, so those come first and the step isn't done until then.
+   * The rest of a clearer wave is the WaveClarity card's job on my profile.
+   */
+  tuned: boolean
+  /** my wave, for step (c)'s pieces */
   wave: ReturnType<typeof useWave>
   done: number
   stepsSeen: boolean
@@ -35,25 +39,32 @@ export function useFirstSteps(): FirstStepsState {
   const roomSaid = useSaidInRoom(myId)
   const wave = useWave()
   const progress = useProgress(myId)
-  const waveClear = !wave.next
+  const { interests, tune } = stepPieces(wave)
+  const tuned = !!interests?.done && !!tune?.done
   return {
     myId,
     chatted,
     roomSaid,
-    waveClear,
+    tuned,
     wave,
-    done: [chatted, roomSaid, waveClear].filter(Boolean).length,
+    done: [chatted, roomSaid, tuned].filter(Boolean).length,
     stepsSeen: progress.stepsSeen === true,
     stepsClosed: progress.stepsClosed === true,
   }
 }
 
+/** The two pieces of my wave (pages/me/wave.ts) step (c) looks at. */
+function stepPieces(wave: ReturnType<typeof useWave>) {
+  return {
+    interests: wave.items.find((s) => s.item.key === 'interests'),
+    tune: wave.items.find((s) => s.item.key === 'tune'),
+  }
+}
+
 /**
  * "เริ่มต้น 3 ขั้น" for someone new: say hi to one person on your wavelength, say hi in a room,
- * make your wave clearer. Until the "จูนคลื่น" quiz ships, a clearer wave means filling in the
- * profile pieces the wave reads; the quiz joins as one more piece in pages/me/wave.ts and this
- * step follows. Each row has the one button that does it; the first open step's button is the
- * page's main action.
+ * play "จูนคลื่น" (its button opens /app/tune; it ticks once a round's worth of picks is in). Each
+ * row has the one button that does it; the first open step's button is the page's main action.
  */
 export function FirstSteps({ steps, onHide }: { steps: FirstStepsState; onHide: () => void }) {
   const onboarded = useMoshi((s) => s.onboarded)
@@ -63,9 +74,10 @@ export function FirstSteps({ steps, onHide }: { steps: FirstStepsState; onHide: 
   const rooms = useRooms()
   const firstRoom = myRooms.map((id) => rooms.find((r) => r.id === id)).find((r) => !!r)
   const { wave } = steps
-  const next = wave.next
-  // fewer than 3 interests: nobody can reach "ถูกคอ" yet, so the wave step comes first
-  const thin = wave.items.some((s) => s.item.key === 'interests' && !s.done)
+  const { interests, tune } = stepPieces(wave)
+  // fewer than 3 interests: nobody can reach "ถูกคอ" yet, so the wave step comes first and asks for those
+  const thin = !!interests && !interests.done
+  const piece = thin ? interests : tune
 
   const chatRow: StepRow = {
     key: 'chat',
@@ -91,12 +103,12 @@ export function FirstSteps({ steps, onHide }: { steps: FirstStepsState; onHide: 
   }
   const waveRow: StepRow = {
     key: 'wave',
-    done: steps.waveClear,
-    title: t('ทำให้คลื่นชัดขึ้น', 'Make your wave clearer'),
-    sub: next ? next.item.why() : t('คลื่นชัดแล้ว', 'Your wave is clear'),
-    action: next
-      ? { to: waveHref(next.item.open(wave.context)), label: next.item.cta(next.left), icon: <Radio size={18} /> }
-      : { to: '/app/me', label: t('ดูโปรไฟล์', 'See my profile'), icon: <Radio size={18} /> },
+    done: steps.tuned,
+    title: thin ? t('เพิ่มเรื่องที่ชอบอีกนิด แล้วเล่นจูนคลื่น', 'Add a few interests, then play this or that') : t('เล่นจูนคลื่น', 'Play this or that'),
+    sub: piece ? piece.item.why() : t('ช่วยให้โมชิจับคู่คนคลื่นเดียวกันได้แม่นขึ้น', 'It helps Mochi match you more closely'),
+    action: piece
+      ? { to: waveHref(piece.item.open(wave.context)), label: piece.item.cta(piece.left), icon: <Radio size={18} /> }
+      : { to: '/app/tune', label: t('เล่นจูนคลื่น', 'Play this or that'), icon: <Radio size={18} /> },
   }
   const rows = thin ? [waveRow, chatRow, roomRow] : [chatRow, roomRow, waveRow]
 

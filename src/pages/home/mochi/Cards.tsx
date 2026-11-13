@@ -1,12 +1,14 @@
 import { CalendarClock, DoorOpen, LifeBuoy, MapPin, MessageCircle, MessageCircleHeart, Radio, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Avatar, ButtonLink, ReasonIcon, RoomIcon, SignalMeter, Zone } from '@/components/ui'
-import { useChats, useMatch, usePerson, useRoom, useRoomStats, useSessions } from '@/data/hooks'
+import { useChats, useMatch, usePerson, useRoom, useRoomStats, useSession } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
-import { dateLocale, known, t } from '@/lib/i18n'
+import { eventPhase, eventWhenLabel } from '@/lib/events'
+import { known, t } from '@/lib/i18n'
 import { MIN_LEVEL } from '@/lib/matching'
-import type { MochiColor, Session } from '@/lib/types'
+import type { MochiColor } from '@/lib/types'
 import { chatToOpen } from '@/pages/chats/lib'
+import { useEventHref, useEventsNow } from '@/pages/events/lib'
 import type { Card } from './engine'
 import { HOTLINES } from './safety'
 
@@ -108,18 +110,13 @@ function PersonCard({ id, onGo }: { id: string; onGo: () => void }) {
   )
 }
 
-function whenLabel(s: Session): string {
-  if (s.live) return t('กำลังคุยกันอยู่ตอนนี้', 'Happening now')
-  if (s.dayOffset === 0) return t(`คืนนี้ ${s.time}`, `Tonight ${s.time}`)
-  if (s.dayOffset === 1) return t(`พรุ่งนี้ ${s.time}`, `Tomorrow ${s.time}`)
-  const day = new Date(Date.now() + s.dayOffset * 86_400_000).toLocaleDateString(dateLocale(), { weekday: 'long' })
-  return `${day} ${s.time}`
-}
-
 function SessionCard({ id, onGo }: { id: string; onGo: () => void }) {
-  const session = useSessions().find((s) => s.id === id)
+  const session = useSession(id)
   const room = useRoom(session?.roomId)
+  const now = useEventsNow(session ? [session] : [])
+  const hrefOf = useEventHref()
   if (!session) return <BrowseCard onGo={onGo} />
+  const open = eventPhase(session, now) === 'open'
   return (
     <Shell tone={room?.color ?? 'lavender'}>
       <div className="flex items-center gap-3">
@@ -131,8 +128,8 @@ function SessionCard({ id, onGo }: { id: string; onGo: () => void }) {
       </div>
       <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-ink-soft">
         <span className="inline-flex items-center gap-1">
-          {session.live ? <Radio size={14} className="text-success" aria-hidden /> : <CalendarClock size={14} aria-hidden />}
-          {whenLabel(session)}
+          {open ? <Radio size={14} className="text-success" aria-hidden /> : <CalendarClock size={14} aria-hidden />}
+          {open ? t('กำลังคุยกันอยู่ตอนนี้', 'Happening now') : eventWhenLabel(session.startsAt, now)}
         </span>
         {session.going > 0 && (
           <span className="inline-flex items-center gap-1">
@@ -141,8 +138,8 @@ function SessionCard({ id, onGo }: { id: string; onGo: () => void }) {
           </span>
         )}
       </p>
-      <ButtonLink to={`/app/rooms/${session.roomId}`} onClick={onGo} block className="mt-3" icon={<DoorOpen size={18} aria-hidden />}>
-        {t('ไปที่ห้อง', 'Go to the room')}
+      <ButtonLink to={hrefOf(session, now)} onClick={onGo} block className="mt-3" icon={<DoorOpen size={18} aria-hidden />}>
+        {open ? t('เข้าห้องเลย', 'Go in now') : t('ดูอีเวนต์', 'See the event')}
       </ButtonLink>
     </Shell>
   )

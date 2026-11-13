@@ -1,15 +1,14 @@
 import { motion, useReducedMotion } from 'motion/react'
 import { ArrowRight, Radio, Sparkles } from 'lucide-react'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Avatar, Button, Section, zoneAction } from '@/components/ui'
-import { useRooms } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
 import { t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import type { EditKind } from './EditSheets'
-import { waveProgress, type WaveProgress } from './wave'
+import { useWave, type WaveProgress } from './wave'
 
 /**
  * "คลื่นชัดขึ้น": how much of my wave is filled in (a squishy bar, no percentages), and the
@@ -17,8 +16,7 @@ import { waveProgress, type WaveProgress } from './wave'
  */
 export function WaveClarity({ onEdit }: { onEdit: (kind: EditKind, step?: number) => void }) {
   const me = useMoshi((s) => s.me)
-  const rooms = useRooms()
-  const wave = useMemo(() => waveProgress({ me, rooms }), [me, rooms])
+  const wave = useWave()
   const navigate = useNavigate()
   const reduce = !!useReducedMotion()
   const { next } = wave
@@ -41,7 +39,7 @@ export function WaveClarity({ onEdit }: { onEdit: (kind: EditKind, step?: number
 
   const go = () => {
     if (!next) return
-    const to = next.item.open({ me, rooms })
+    const to = next.item.open(wave.context)
     if ('to' in to) navigate(to.to)
     else onEdit(to.sheet, to.step)
   }

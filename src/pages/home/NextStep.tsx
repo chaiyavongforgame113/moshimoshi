@@ -1,17 +1,21 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { CalendarClock, Check, DoorOpen, MessageCircle, MessageCircleHeart, Plus, Radio } from 'lucide-react'
+import { CalendarClock, DoorOpen, MessageCircle, MessageCircleHeart, Radio } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { Avatar, Button, ButtonLink, ReasonIcon, RoomIcon, SignalMeter } from '@/components/ui'
+import { Avatar, ButtonLink, ReasonIcon, RoomIcon, SignalMeter } from '@/components/ui'
 import { useChats, useDailyPick, usePerson, useRoom, useSessions } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
+import { eventPhase, eventWhenLabel, formatCountdown } from '@/lib/events'
 import { known, t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import type { Chat, MatchResult, MochiColor, Session } from '@/lib/types'
 import { chatPhase, chatToOpen, previewText, setAside } from '@/pages/chats/lib'
+import { OpenDot } from '@/pages/events/EventCard'
+import { bySoonest, eventPath, useEventHref, useEventsNow } from '@/pages/events/lib'
+import { RsvpButton, useRsvp } from '@/pages/events/Rsvp'
 import { useIsMine } from '@/pages/people/lib'
-import { ageLabel, dayLabel, roomLabel } from './greeting'
+import { ageLabel, roomLabel } from './greeting'
 import { InviteButton } from './Soft'
 
 export type Next =
@@ -21,9 +25,6 @@ export type Next =
   | { kind: 'pick'; match: MatchResult }
   | { kind: 'upcoming'; session: Session }
   | { kind: 'invite' }
-
-/** live first, then by day and time */
-const bySoonest = (a: Session, b: Session) => Number(!!b.live) - Number(!!a.live) || a.dayOffset - b.dayOffset || a.time.localeCompare(b.time)
 
 /**
  * The one most important thing right now, in this order: someone said hi / unread messages →
@@ -35,6 +36,8 @@ export function useNextStep(): Next {
   const chats = useChats()
   const isMine = useIsMine()
   const sessions = useSessions()
+  // re-decides right when an event opens or closes
+  const now = useEventsNow(sessions)
   const going = useMoshi((s) => s.going)
   const myRooms = useMoshi((s) => s.me.rooms)
   const pick = useDailyPick()
@@ -46,16 +49,16 @@ export function useNextStep(): Next {
     const unread = open.filter((c) => c.unread > 0)
     if (unread.length) return { kind: 'unread', chat: unread[0], others: unread.length - 1 }
 
-    const live = sessions.filter((s) => s.live)
+    const live = sessions.filter((s) => eventPhase(s, now) === 'open')
     const mineLive = live.find((s) => going.includes(s.id)) ?? live.find((s) => myRooms.includes(s.roomId))
     if (mineLive) return { kind: 'live', session: mineLive, why: going.includes(mineLive.id) ? 'going' : 'room' }
 
     if (pick && !chatToOpen(chats, pick.userId)) return { kind: 'pick', match: pick }
 
-    const soonest = [...sessions].sort(bySoonest)[0]
+    const soonest = sessions.filter((s) => eventPhase(s, now) === 'upcoming').sort(bySoonest(now))[0]
     if (soonest) return { kind: 'upcoming', session: soonest }
     return { kind: 'invite' }
-  }, [chats, isMine, sessions, going, myRooms, pick])
+  }, [chats, isMine, sessions, going, myRooms, pick, now])
 }
 
 const keyOf = (n: Next) => {
@@ -163,56 +166,56 @@ function ChatCard({ chat, hello = false, others = 0 }: { chat: Chat; hello?: boo
 
 function EventCard({ session: s, why }: { session: Session; why?: 'going' | 'room' }) {
   const room = useRoom(s.roomId)
-  const going = useMoshi((st) => st.going.includes(s.id))
-  const toggleGoing = useMoshi((st) => st.toggleGoing)
+  const now = useEventsNow([s])
+  const open = eventPhase(s, now) === 'open'
+  const href = useEventHref()(s, now)
+  const rsvp = useRsvp()
+  const going = rsvp.isGoing(s.id)
   const count = s.going + (going ? 1 : 0)
-  const eyebrow = s.live
+  const eyebrow = open
     ? why === 'going'
-      ? t('อีเวนต์ที่เราจะไปเปิดแล้ว', "An event you're going to is live")
+      ? t('อีเวนต์ที่เราจะไปเปิดแล้ว', "An event you're going to is open")
       : why === 'room'
-        ? t('ห้องของเรามีอีเวนต์เปิดอยู่', 'Live now in one of your rooms')
-        : t('กำลังเปิดอยู่ตอนนี้', 'Live right now')
+        ? t('ห้องของเรามีอีเวนต์เปิดอยู่', 'An event is open in one of your rooms')
+        : t('เปิดอยู่ตอนนี้', 'Open right now')
     : t('อีเวนต์ถัดไป', 'Next event')
   return (
     <Card
       color={room?.color ?? 'lavender'}
       eyebrow={
         <>
-          {s.live ? <LivePill /> : <CalendarClock size={14} strokeWidth={2.4} aria-hidden />}
+          {open ? <LivePill /> : <CalendarClock size={14} strokeWidth={2.4} aria-hidden />}
           {eyebrow}
         </>
       }
       visual={room ? <RoomIcon room={room} size={52} /> : <Avatar color="lavender" size={52} face="happy" />}
-      title={s.title}
+      title={
+        <Link to={href} className="rounded-md hover:underline hover:decoration-2 hover:underline-offset-4">
+          {s.title}
+        </Link>
+      }
       line={
         <>
-          {s.live ? t('คุยกันอยู่ตอนนี้', 'Happening now') : `${dayLabel(s.dayOffset)} ${s.time}`}
+          {open ? formatCountdown(s, now) : `${eventWhenLabel(s.startsAt, now)} · ${formatCountdown(s, now)}`}
           {room && ` · ${roomLabel(room.name)}`}
-          {' · '}
-          {t(`${count} คนจะไป`, `${count} going`)}
+          {count > 0 && ` · ${open ? t(`${count} คนมาแล้ว`, `${count} here`) : t(`${count} คนจะไป`, `${count} going`)}`}
         </>
       }
       actions={
-        s.live ? (
-          <ButtonLink to={`/app/rooms/${s.roomId}`} icon={<DoorOpen size={18} />} className="w-full sm:w-auto">
-            {t('เข้าไปคุยเลย', 'Join the chat')}
-          </ButtonLink>
-        ) : going ? (
-          <>
-            <span className="inline-flex h-12 items-center justify-center gap-1.5 rounded-full bg-mint px-5 font-display text-[15px] font-semibold text-ink shadow-[inset_0_-3px_0_rgb(59_38_34/0.12)]">
-              <Check size={18} strokeWidth={3} aria-hidden />
-              {t('ไปด้วยแล้ว', "You're going")}
-            </span>
-            <ButtonLink to={`/app/rooms/${s.roomId}`} variant="secondary" icon={<DoorOpen size={18} />}>
-              {t('ไปดูห้อง', 'See the room')}
-            </ButtonLink>
-          </>
-        ) : (
-          <Button onClick={() => toggleGoing(s.id)} icon={<Plus size={18} strokeWidth={2.8} />} className="w-full sm:w-auto">
-            {t('ไปด้วย', "I'm going")}
-            {/* the event's name, for screen readers: the visible words still start the button's name */}
+        open ? (
+          <ButtonLink to={href} icon={<DoorOpen size={18} />} className="w-full sm:w-auto">
+            {t('เข้าห้องเลย', 'Go in now')}
+            {/* the event's name, for screen readers: the visible words still start the link's name */}
             <span className="sr-only">{t(` ${s.title}`, `: ${s.title}`)}</span>
-          </Button>
+          </ButtonLink>
+        ) : (
+          <>
+            <RsvpButton session={s} going={going} onToggle={() => rsvp.toggle(s)} size="lg" className="w-full sm:w-auto" />
+            <ButtonLink to={eventPath(s.id)} variant="ghost" className="w-full sm:w-auto">
+              {t('ดูอีเวนต์', 'See the event')}
+            </ButtonLink>
+            {rsvp.sheet}
+          </>
         )
       }
     />
@@ -284,12 +287,9 @@ function InviteCard() {
 
 function LivePill() {
   return (
-    <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-coral px-2 font-display text-[11px] font-bold tracking-wide text-ink">
-      <span className="relative flex size-2" aria-hidden>
-        <span className="absolute inline-flex size-full rounded-full bg-white opacity-90 motion-safe:animate-ping" />
-        <span className="relative inline-flex size-2 rounded-full bg-white" />
-      </span>
-      {t('เปิดอยู่', 'LIVE')}
+    <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-mint px-2 font-display text-[11px] font-bold tracking-wide text-ink">
+      <OpenDot />
+      {t('เปิดอยู่', 'OPEN')}
     </span>
   )
 }

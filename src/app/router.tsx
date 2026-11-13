@@ -17,6 +17,8 @@ const ProfilePage = lazy(() => import('@/pages/people/ProfilePage'))
 const ChatsPage = lazy(() => import('@/pages/chats/ChatsPage'))
 const ChatPage = lazy(() => import('@/pages/chats/ChatPage'))
 const MePage = lazy(() => import('@/pages/me/MePage'))
+const EventPage = lazy(() => import('@/pages/events/EventPage'))
+const TunePage = lazy(() => import('@/pages/tune/TunePage'))
 const LoginPage = lazy(() => import('@/pages/auth/LoginPage'))
 const AuthCallbackPage = lazy(() => import('@/pages/auth/AuthCallbackPage'))
 const AdminPage = lazy(() => import('@/pages/admin/AdminPage'))
@@ -92,6 +94,8 @@ export const router = createBrowserRouter([
           { path: 'chats', element: page(<ChatsPage />) },
           { path: 'chats/:chatId', element: page(<ChatPage />) },
           { path: 'me', element: page(<MePage />) },
+          { path: 'events/:sessionId', element: page(<EventPage />) },
+          { path: 'tune', element: page(<TunePage />) },
         ],
       },
       { path: '*', element: <Navigate to="/" replace /> },

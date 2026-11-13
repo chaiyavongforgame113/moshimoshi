@@ -1,12 +1,15 @@
 import { create, type StoreApi } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { useCatalog } from '@/data/catalog'
 import { keepLocalUrl, releaseLocalUrl } from '@/data/chatImages'
 import { liveActions } from '@/data/live/actions'
+import { dayOffset, hhmm } from '@/data/live/time'
 import { DEMO_CHATS, DEMO_ME } from '@/data/mock'
-import { t, useLangStore } from '@/lib/i18n'
+import { t, tx, useLangStore } from '@/lib/i18n'
+import { checkEventDraft, EVENT_LIMITS, EVENT_REFUSALS, eventDraftIssueText, eventPhase } from './events'
 import type { PreparedImage } from './image'
 import { isLive } from './supabase'
-import type { Chat, ChatMessage, Intent, Mood, User } from './types'
+import type { Chat, ChatMessage, EventDraft, Intent, Mood, Session, User, WaveAnswers, WaveChoice } from './types'
 
 const now = () => new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
 const uid = (p: string) => `${p}-${Math.random().toString(36).slice(2, 9)}`
@@ -33,6 +36,12 @@ export interface MoshiState {
   answers: Record<string, string>
   /** message / answer ids I reacted "เหมือนกัน!" to */
   sames: string[]
+  /** demo: my lines in event chats · live: my lines still on their way (session id → lines) */
+  eventMessages: Record<string, ChatMessage[]>
+  /** my "จูนคลื่น" picks (question id → 0 / 1). Live: the server's plus any not saved there yet */
+  wave: WaveAnswers
+  /** live: whose picks `wave` holds on this device ('' = not known yet); another account's are dropped */
+  waveOwner: string
   /** user ids I blocked (hidden everywhere) */
   blocked: string[]
   /** who may send me a moshi */
@@ -78,6 +87,22 @@ export interface MoshiState {
   /** prototype: a room member's reply, kept in roomMessages next to mine */
   receiveRoomMessage: (roomId: string, userId: string, text: string) => void
   answerQuestion: (questionId: string, text: string) => void
+  /**
+   * A line in an event's chat. Only while the event is open (the server holds the clock); a refusal
+   * shows a friendly toast ("อีเวนต์จบแล้ว…"). Sending also counts as going ("ไปด้วย").
+   */
+  sendEventMessage: (sessionId: string, text: string) => void
+  /**
+   * Set up an event (staff, or a host of that room). Resolves with the new session id, or
+   * undefined after a toast saying why not (checkEventDraft's rules, permissions, a taken weekly slot).
+   */
+  createEvent: (draft: EventDraft) => Promise<string | undefined>
+  /** Call an event off (the UI asks first). alsoStopRepeat: no more weeks either. Resolves true when done */
+  cancelEvent: (sessionId: string, alsoStopRepeat?: boolean) => Promise<boolean>
+  /** A weekly event stops repeating after this one (this one stays). Resolves true when done */
+  stopRepeat: (sessionId: string) => Promise<boolean>
+  /** "จูนคลื่น": pick a side (picking again changes it). Saved right away; without the server piece it stays on this device */
+  answerWave: (questionId: string, choice: WaveChoice) => void
   toggleSame: (id: string) => void
   blockUser: (userId: string) => void
   /** off my blocked list at once (Me → ตั้งค่า → คนที่บล็อกไว้); no toast of its own unless it fails */
@@ -125,6 +150,9 @@ const DEMO_DATA: MoshiData = {
   roomMessages: {},
   answers: {},
   sames: [],
+  eventMessages: {},
+  wave: {},
+  waveOwner: '',
   blocked: [],
   moshiPolicy: 'everyone',
   mood: undefined,
@@ -147,6 +175,45 @@ function settled(chat: Chat): Chat {
 }
 
 let noticeId = 0
+
+const MINUTE = 60_000
+const WEEK = 7 * 86_400_000
+
+/** A demo event made from the create wizard's answers (live ones come from the server). */
+function demoEvent(id: string, draft: EventDraft, startMs: number, me: string, seriesId?: string): Session {
+  const startsAt = new Date(startMs).toISOString()
+  const description = draft.description?.trim()
+  return {
+    id,
+    roomId: draft.roomId,
+    title: draft.title.trim(),
+    dayOffset: dayOffset(startsAt),
+    time: hhmm(startsAt),
+    durationMin: draft.durationMin,
+    going: 0,
+    goingIds: [],
+    hostId: me,
+    createdBy: me,
+    live: false,
+    startsAt,
+    endsAt: new Date(startMs + draft.durationMin * MINUTE).toISOString(),
+    ...(description ? { description } : {}),
+    ...(seriesId ? { repeatsWeekly: true, seriesId } : {}),
+  }
+}
+
+/** A copy with some fields changed that keeps demo text following the language (loc() getters). */
+function withFields<T extends object>(o: T, patch: Partial<T>): T {
+  const copy = Object.create(Object.getPrototypeOf(o), Object.getOwnPropertyDescriptors(o)) as T
+  for (const [k, v] of Object.entries(patch)) Object.defineProperty(copy, k, { value: v, enumerable: true, configurable: true, writable: true })
+  return copy
+}
+
+/** Demo: change the catalog's copy of some events. */
+function editDemoEvents(fn: (s: Session) => Session) {
+  const cat = useCatalog.getState()
+  cat.set({ sessions: cat.sessions.map(fn) })
+}
 
 /** Local-only behaviour: the whole prototype in demo mode, sample people in live mode. */
 export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
@@ -270,6 +337,64 @@ export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
         },
       })),
     answerQuestion: (questionId, text) => set((s) => ({ answers: { ...s.answers, [questionId]: text } })),
+    sendEventMessage: (sessionId, text) => {
+      const body = text.trim().slice(0, EVENT_LIMITS.messageMax)
+      if (!body) return
+      const session = useCatalog.getState().sessions.find((x) => x.id === sessionId)
+      const phase = session ? eventPhase(session) : 'closed'
+      if (phase !== 'open') return get().notify(tx(EVENT_REFUSALS[phase]))
+      const id = uid('m')
+      set((s) => ({
+        eventMessages: { ...s.eventMessages, [sessionId]: [...(s.eventMessages[sessionId] ?? []), { id, localId: id, userId: s.me.id, text: body, at: now() }] },
+        going: s.going.includes(sessionId) ? s.going : [...s.going, sessionId],
+      }))
+    },
+    // demo events live in the catalog for this visit (the seeded ones come back on reload)
+    createEvent: (draft) => {
+      const issue = checkEventDraft(draft)
+      if (issue) {
+        get().notify(eventDraftIssueText(issue))
+        return Promise.resolve(undefined)
+      }
+      const start = Math.floor(Date.parse(draft.startsAt) / MINUTE) * MINUTE
+      const id = uid('e')
+      const me = get().me.id
+      const series = draft.repeatWeekly ? uid('series') : undefined
+      const made = [demoEvent(id, draft, start, me, series), ...(series ? [demoEvent(uid('e'), draft, start + WEEK, me, series)] : [])]
+      const cat = useCatalog.getState()
+      cat.set({ sessions: [...cat.sessions, ...made].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt)) })
+      return Promise.resolve(id)
+    },
+    cancelEvent: (sessionId, alsoStopRepeat = false) => {
+      const target = useCatalog.getState().sessions.find((x) => x.id === sessionId)
+      if (!target) return Promise.resolve(false)
+      const nowMs = Date.now()
+      if (eventPhase(target, nowMs) === 'closed' && !alsoStopRepeat) {
+        get().notify(tx(EVENT_REFUSALS.closed))
+        return Promise.resolve(false)
+      }
+      const series = alsoStopRepeat ? target.seriesId : undefined
+      editDemoEvents((x) => {
+        const inSeries = !!series && x.seriesId === series
+        const cancel = (x.id === sessionId && eventPhase(x, nowMs) !== 'closed') || (inSeries && Date.parse(x.startsAt) > nowMs)
+        if (!cancel && !inSeries) return x
+        return withFields(x, { ...(cancel ? { cancelled: true, live: false } : {}), ...(inSeries ? { repeatsWeekly: undefined, seriesId: undefined } : {}) })
+      })
+      return Promise.resolve(true)
+    },
+    stopRepeat: (sessionId) => {
+      const target = useCatalog.getState().sessions.find((x) => x.id === sessionId)
+      const series = target?.seriesId
+      if (!target || !series) return Promise.resolve(!!target)
+      const nowMs = Date.now()
+      editDemoEvents((x) => {
+        if (x.seriesId !== series) return x
+        const cancel = x.id !== sessionId && Date.parse(x.startsAt) > nowMs
+        return withFields(x, { repeatsWeekly: undefined, seriesId: undefined, ...(cancel ? { cancelled: true } : {}) })
+      })
+      return Promise.resolve(true)
+    },
+    answerWave: (questionId, choice) => set((s) => ({ wave: { ...s.wave, [questionId]: choice }, waveOwner: s.me.id })),
     toggleSame: (id) => set((s) => ({ sames: s.sames.includes(id) ? s.sames.filter((x) => x !== id) : [...s.sames, id] })),
     blockUser: (userId) =>
       set((s) => ({
@@ -297,7 +422,8 @@ export const useMoshi = create<MoshiState>()(
       name: isLive ? 'moshimoshi-live' : 'moshimoshi-demo',
       version: 1,
       partialize: (s): Partial<MoshiState> => {
-        if (isLive) return { mood: s.mood }
+        // live: my "จูนคลื่น" picks too, so they survive a reload before the server keeps them
+        if (isLive) return { mood: s.mood, wave: s.wave, waveOwner: s.waveOwner }
         const { notice: _notice, ...data } = s
         return { ...data, chats: data.chats.map(settled) }
       },

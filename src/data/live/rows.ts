@@ -84,6 +84,29 @@ export interface SessionRow {
   duration_min: number | null
   host_id: string | null
   host_name: string | null
+  /** the columns below come with 20261114000001_room_events.sql (absent before it runs) */
+  description?: string | null
+  cancelled_at?: string | null
+  created_by?: string | null
+  /** the weekly plan row that made it (null: a one-off, or the weekly repeat was stopped) */
+  plan_id?: number | null
+}
+
+/** A line in an event's chat (20261114000001_room_events.sql). Realtime deletes carry the id alone. */
+export interface EventMessageRow {
+  id: string
+  session_id: string
+  user_id: string
+  body: string
+  created_at: string
+}
+
+/** A "จูนคลื่น" pick (20261114000002_wave_quiz.sql). */
+export interface WaveAnswerRow {
+  user_id: string
+  question_id: string
+  choice: number
+  answered_at?: string | null
 }
 
 export interface RsvpRow {
@@ -184,7 +207,10 @@ export interface TableRows {
   room_members: RoomMemberRow
   room_messages: RoomMessageRow
   room_message_sames: MessageSameRow
+  sessions: SessionRow
   session_rsvps: RsvpRow
+  event_messages: EventMessageRow
+  wave_answers: WaveAnswerRow
   daily_answers: AnswerRow
   daily_answer_sames: AnswerSameRow
   intents: IntentRow

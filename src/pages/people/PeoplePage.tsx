@@ -113,15 +113,20 @@ function WaveTab() {
                   'ชุมชนเพิ่งเริ่มต้น ชวนเพื่อนมาเล่นด้วยกันสิ พอมีคนที่ชอบเหมือนกันเข้ามา โมชิจะพามาเจอเราทันที',
                   "The community's just getting started. Bring your friends along, and Mochi will introduce you to people who like the same things as soon as they join.",
                 )
-            : missing
+            : missing?.item.key === 'tune'
               ? t(
-                  'โมชิแนะนำเฉพาะคนที่ถูกคอกับเราจริงๆ เล่าเรื่องของเราอีกนิด คลื่นจะชัดขึ้นและเจอคนที่ใช่ง่ายขึ้นนะ',
-                  'Mochi only suggests people who really click with you. Share a little more and your wave gets clearer and easier to match.',
+                  'โมชิแนะนำเฉพาะคนที่ถูกคอกับเราจริงๆ ลองเล่นจูนคลื่นอีกนิด คลื่นจะชัดขึ้นและเจอคนที่ใช่ง่ายขึ้นนะ',
+                  'Mochi only suggests people who really click with you. A few quick this-or-thats make your wave clearer and easier to match.',
                 )
-              : t(
-                  'โมชิแนะนำเฉพาะคนที่ถูกคอกับเราจริงๆ คลื่นของเราชัดแล้ว ยิ่งมีเพื่อนมาเล่นเยอะ ก็ยิ่งเจอคนที่ใช่ง่ายขึ้นนะ',
-                  'Mochi only suggests people who really click with you. Your wave is clear, so the more friends join, the sooner your people turn up.',
-                )
+              : missing
+                ? t(
+                    'โมชิแนะนำเฉพาะคนที่ถูกคอกับเราจริงๆ เล่าเรื่องของเราอีกนิด คลื่นจะชัดขึ้นและเจอคนที่ใช่ง่ายขึ้นนะ',
+                    'Mochi only suggests people who really click with you. Share a little more and your wave gets clearer and easier to match.',
+                  )
+                : t(
+                    'โมชิแนะนำเฉพาะคนที่ถูกคอกับเราจริงๆ คลื่นของเราชัดแล้ว ยิ่งมีเพื่อนมาเล่นเยอะ ก็ยิ่งเจอคนที่ใช่ง่ายขึ้นนะ',
+                    'Mochi only suggests people who really click with you. Your wave is clear, so the more friends join, the sooner your people turn up.',
+                  )
         }
         action={
           missing ? (

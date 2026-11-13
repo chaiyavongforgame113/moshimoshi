@@ -1,7 +1,21 @@
 import type { Database } from '@/lib/database.types'
 import { db } from '@/lib/supabase'
 import { CHAT_IMAGES, LINK_SECONDS } from '@/data/chatImages'
-import type { AnswerRow, BlockedPersonRow, ChatMemberRow, ChatMessageRow, IntentRow, ProfileRow, PromptSameRow, RoomMemberRow, RoomMessageRow } from './rows'
+import type { EventDraft } from '@/lib/types'
+import type {
+  AnswerRow,
+  BlockedPersonRow,
+  ChatMemberRow,
+  ChatMessageRow,
+  EventMessageRow,
+  IntentRow,
+  ProfileRow,
+  PromptSameRow,
+  RoomMemberRow,
+  RoomMessageRow,
+  SessionRow,
+  WaveAnswerRow,
+} from './rows'
 
 // Thin Supabase writes for the store actions. Each one throws on failure so
 // the caller can roll its optimistic update back.
@@ -101,6 +115,73 @@ export async function insertRoomMessage(roomId: string, userId: string, body: st
     .select()
     .single()
   return check(res) as RoomMessageRow
+}
+
+// ------------------------------------------------------------------ events (20261114000001_room_events.sql)
+
+/** A line in an event's chat; the server refuses it outside the event's open window (event_* keys). */
+export async function insertEventMessage(sessionId: string, userId: string, body: string): Promise<EventMessageRow> {
+  const res = await db()
+    .from('event_messages')
+    .insert({ session_id: sessionId, user_id: userId, body } as Insert<'event_messages'>)
+    .select()
+    .single()
+  return check(res) as EventMessageRow
+}
+
+export async function deleteEventMessage(id: string) {
+  check(await db().from('event_messages').delete().eq('id', id))
+}
+
+/** create_event: staff or a host of the room. Returns the new session's id. */
+export async function createEvent(d: EventDraft): Promise<string> {
+  const res = await db().rpc('create_event', {
+    p_room: d.roomId,
+    p_title: d.title.trim(),
+    p_description: d.description?.trim() || null,
+    p_starts_at: d.startsAt,
+    p_duration_min: d.durationMin,
+    p_repeat_weekly: d.repeatWeekly,
+  })
+  return check(res) as string
+}
+
+export async function cancelEvent(sessionId: string, stopRepeat: boolean) {
+  check(await db().rpc('cancel_event', { p_session: sessionId, p_stop_repeat: stopRepeat }))
+}
+
+export async function stopRepeat(sessionId: string) {
+  check(await db().rpc('stop_repeat', { p_session: sessionId }))
+}
+
+/** Sessions as the server has them now (after a create / cancel). */
+export async function sessionRows(ids: string[]): Promise<SessionRow[]> {
+  if (!ids.length) return []
+  return (check(await db().from('sessions').select('*').in('id', ids)) ?? []) as SessionRow[]
+}
+
+/** Every session one weekly plan made that hasn't ended (next week's, after a weekly create). */
+export async function sessionsOfPlan(planId: number): Promise<SessionRow[]> {
+  const res = await db().from('sessions').select('*').eq('plan_id', planId).gte('starts_at', new Date(Date.now() - 86_400_000).toISOString())
+  return (check(res) ?? []) as SessionRow[]
+}
+
+/** Am I staff? (public.is_admin(); false on any error) */
+export async function isStaff(): Promise<boolean> {
+  const res = await db().rpc('is_admin')
+  return !res.error && res.data === true
+}
+
+// ------------------------------------------------------------------ "จูนคลื่น" (20261114000002_wave_quiz.sql)
+
+/** Save picks (a new pick or a changed one). Returns the stored rows. */
+export async function upsertWave(userId: string, picks: { question_id: string; choice: number }[]): Promise<WaveAnswerRow[]> {
+  if (!picks.length) return []
+  const res = await db()
+    .from('wave_answers')
+    .upsert(picks.map((p) => ({ ...p, user_id: userId })) as Insert<'wave_answers'>[], { onConflict: 'user_id,question_id' })
+    .select('user_id,question_id,choice')
+  return (check(res) ?? []) as WaveAnswerRow[]
 }
 
 export async function insertChatMessage(chatId: string, userId: string, body: string): Promise<ChatMessageRow> {

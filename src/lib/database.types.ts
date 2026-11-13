@@ -301,6 +301,45 @@ export type Database = {
           },
         ]
       }
+      event_messages: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          session_id: string
+          user_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          session_id: string
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          session_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'event_messages_session_id_fkey'
+            columns: ['session_id']
+            isOneToOne: false
+            referencedRelation: 'sessions'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'event_messages_user_id_fkey'
+            columns: ['user_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       intent_joins: {
         Row: {
           created_at: string
@@ -810,36 +849,55 @@ export type Database = {
       }
       sessions: {
         Row: {
+          cancelled_at: string | null
           created_at: string
+          created_by: string | null
+          description: string | null
           duration_min: number
           host_id: string | null
           host_name: string | null
           id: string
+          plan_id: number | null
           room_id: string
           starts_at: string
           title: string
         }
         Insert: {
+          cancelled_at?: string | null
           created_at?: string
+          created_by?: string | null
+          description?: string | null
           duration_min?: number
           host_id?: string | null
           host_name?: string | null
           id?: string
+          plan_id?: number | null
           room_id: string
           starts_at: string
           title: string
         }
         Update: {
+          cancelled_at?: string | null
           created_at?: string
+          created_by?: string | null
+          description?: string | null
           duration_min?: number
           host_id?: string | null
           host_name?: string | null
           id?: string
+          plan_id?: number | null
           room_id?: string
           starts_at?: string
           title?: string
         }
         Relationships: [
+          {
+            foreignKeyName: 'sessions_created_by_fkey'
+            columns: ['created_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
           {
             foreignKeyName: 'sessions_host_id_fkey'
             columns: ['host_id']
@@ -859,6 +917,35 @@ export type Database = {
             columns: ['room_id']
             isOneToOne: false
             referencedRelation: 'rooms'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      wave_answers: {
+        Row: {
+          answered_at: string
+          choice: number
+          question_id: string
+          user_id: string
+        }
+        Insert: {
+          answered_at?: string
+          choice: number
+          question_id: string
+          user_id: string
+        }
+        Update: {
+          answered_at?: string
+          choice?: number
+          question_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'wave_answers_user_id_fkey'
+            columns: ['user_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
             referencedColumns: ['id']
           },
         ]
@@ -927,6 +1014,21 @@ export type Database = {
         Args: { p_days: number; p_reason?: string; p_user: string }
         Returns: string | null
       }
+      cancel_event: {
+        Args: { p_session: string; p_stop_repeat?: boolean }
+        Returns: undefined
+      }
+      create_event: {
+        Args: {
+          p_description: string | null
+          p_duration_min: number
+          p_repeat_weekly?: boolean
+          p_room: string
+          p_starts_at: string
+          p_title: string
+        }
+        Returns: string
+      }
       is_admin: {
         Args: never
         Returns: boolean
@@ -957,6 +1059,10 @@ export type Database = {
       send_moshi: {
         Args: { opener: string; target: string }
         Returns: string
+      }
+      stop_repeat: {
+        Args: { p_session: string }
+        Returns: undefined
       }
     }
     Enums: {

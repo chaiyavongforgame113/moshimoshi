@@ -5,6 +5,7 @@ import type {
   ChatSameRow,
   ChatMessageRow,
   ChatRow,
+  EventMessageRow,
   IntentJoinRow,
   IntentRow,
   MessageSameRow,
@@ -16,6 +17,7 @@ import type {
   RoomRow,
   RsvpRow,
   SessionRow,
+  WaveAnswerRow,
 } from './rows'
 
 /** The client's copy of the server rows it cares about, keyed for quick updates. */
@@ -50,6 +52,11 @@ export interface Cache {
   chatSameIds: Map<string, string>
   /** "เหมือนกัน!" on profile stories that I gave or got, key `${profile}|${prompt}|${user}` */
   promptSames: Map<string, PromptSameRow>
+  /** event chats being watched: session → message id → row */
+  eventMsgs: Map<string, Map<string, EventMessageRow>>
+  msgEvent: Map<string, string>
+  /** "จูนคลื่น" picks: user → question → 0 / 1 */
+  wave: Map<string, Map<string, number>>
   /** people I blocked (blocks rows) */
   blocked: Set<string>
   /** ids whose profile the server won't show us (a block either way): their lines stay hidden */
@@ -79,6 +86,9 @@ export function createCache(me: string): Cache {
     chatSames: new Map(),
     chatSameIds: new Map(),
     promptSames: new Map(),
+    eventMsgs: new Map(),
+    msgEvent: new Map(),
+    wave: new Map(),
     blocked: new Set(),
     hidden: new Set(),
   }
@@ -153,6 +163,33 @@ export function dropChat(c: Cache, id: string) {
     c.chatSames.delete(mid)
   })
   c.chatMsgs.delete(id)
+}
+
+/** Keeps a line only for an event chat that's being watched (its history loaded). */
+export function putEventMessage(c: Cache, row: EventMessageRow): boolean {
+  const msgs = c.eventMsgs.get(row.session_id)
+  if (!msgs) return false
+  msgs.set(row.id, row)
+  c.msgEvent.set(row.id, row.session_id)
+  return true
+}
+
+export function dropEventMessage(c: Cache, id: string): string | undefined {
+  const sessionId = c.msgEvent.get(id)
+  if (sessionId) c.eventMsgs.get(sessionId)?.delete(id)
+  c.msgEvent.delete(id)
+  return sessionId
+}
+
+export function putWave(c: Cache, row: WaveAnswerRow, on: boolean) {
+  let picks = c.wave.get(row.user_id)
+  if (on && (row.choice === 0 || row.choice === 1)) {
+    if (!picks) c.wave.set(row.user_id, (picks = new Map()))
+    picks.set(row.question_id, row.choice)
+  } else if (picks) {
+    picks.delete(row.question_id)
+    if (!picks.size) c.wave.delete(row.user_id)
+  }
 }
 
 export function putJoin(c: Cache, row: IntentJoinRow, on: boolean) {

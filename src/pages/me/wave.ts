@@ -1,10 +1,11 @@
-import { Clock3, DoorOpen, Heart, MessagesSquare, Quote, Star, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, Clock3, DoorOpen, Heart, MessagesSquare, Quote, Star, type LucideIcon } from 'lucide-react'
 import { useMemo } from 'react'
-import { useRooms } from '@/data/hooks'
+import { useMyWaveAnswers, useRooms } from '@/data/hooks'
 import { promptLabel } from '@/data/tags'
 import { t } from '@/lib/i18n'
 import { useMoshi } from '@/lib/store'
-import type { MochiColor, PromptAnswer, Room, User } from '@/lib/types'
+import type { MochiColor, PromptAnswer, Room, User, WaveAnswers } from '@/lib/types'
+import { answeredCount, WAVE_ROUND_SIZE } from '@/lib/waveQuiz'
 import type { EditKind } from './EditSheets'
 
 /*
@@ -12,17 +13,16 @@ import type { EditKind } from './EditSheets'
  * much of each makes it clear. The card on my profile walks through them in this order and
  * offers one at a time.
  *
- * To add a piece (the "จูนคลื่น" quiz, for example), add one entry to WAVE_ITEMS:
- *   { key: 'tune', Icon: Radio, tone: 'lavender', need: 8, have: ({ tune }) => tune,
- *     name: () => t('จูนคลื่น', 'Wave quiz'), cta: () => t('เล่นจูนคลื่น', 'Play the wave quiz'),
- *     why: () => …, open: () => ({ to: '/app/tune' }) }
- * and, if it needs more than my profile and the rooms, a field on WaveContext.
+ * To add a piece, add one entry to WAVE_ITEMS (see 'tune', the "จูนคลื่น" quiz) and, if it
+ * needs more than my profile, the rooms and my quiz picks, a field on WaveContext (filled in useWave).
  * Text is read through functions, so it's always in the language of the moment.
  */
 
 export interface WaveContext {
   me: User
   rooms: Room[]
+  /** my "จูนคลื่น" picks */
+  quiz: WaveAnswers
 }
 
 /** what the "next" button does: open one of my edit sheets (at a step), or go to a page */
@@ -59,6 +59,25 @@ export const WAVE_ITEMS: WaveItem[] = [
     cta: (left) => t(`เลือกเรื่องที่ชอบอีก ${left} เรื่อง`, left === 1 ? 'Pick 1 more interest' : `Pick ${left} more interests`),
     why: () => t('เรื่องที่ชอบคือหัวใจของคลื่น ใช้หาคนที่ชอบเหมือนกัน', 'Interests are the heart of your wave. They find people who like what you like'),
     open: () => ({ sheet: 'tags', step: 0 }),
+  },
+  {
+    // one round's worth of picks, from any week: enough for the wave to compare with most people
+    key: 'tune',
+    Icon: ArrowLeftRight,
+    tone: 'lavender',
+    have: ({ quiz }) => answeredCount(quiz),
+    need: WAVE_ROUND_SIZE,
+    name: () => t('จูนคลื่น', 'This or that'),
+    cta: (left) =>
+      left >= WAVE_ROUND_SIZE
+        ? t('เล่นจูนคลื่น', 'Play this or that')
+        : t(`ตอบจูนคลื่นอีก ${left} ข้อ`, left === 1 ? 'Answer 1 more this-or-that' : `Answer ${left} more this-or-thats`),
+    why: () =>
+      t(
+        'เลือกระหว่างสองอย่าง ตอบเร็วๆ 8 ข้อ โมชิจะจับคู่คนคลื่นเดียวกันได้แม่นขึ้น',
+        '8 quick picks between two things, so Mochi can match you more closely',
+      ),
+    open: () => ({ to: '/app/tune' }),
   },
   {
     key: 'loves',
@@ -146,10 +165,11 @@ export function waveProgress(c: WaveContext, items: WaveItem[] = WAVE_ITEMS): Wa
 export function useWave(): WaveProgress & { context: WaveContext } {
   const me = useMoshi((s) => s.me)
   const rooms = useRooms()
+  const quiz = useMyWaveAnswers()
   return useMemo(() => {
-    const context = { me, rooms }
+    const context = { me, rooms, quiz }
     return { ...waveProgress(context), context }
-  }, [me, rooms])
+  }, [me, rooms, quiz])
 }
 
 /** The edit sheets my profile opens from a link: /app/me?edit=tags&step=1 */

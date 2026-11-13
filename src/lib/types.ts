@@ -135,6 +135,46 @@ export interface Session {
   /** host label from sessions.host_name, for hosts without a profile */
   hostName?: string
   live?: boolean
+  /** when it starts, ISO (an event's chat opens then; see eventPhase in lib/events) */
+  startsAt: string
+  /** when it ends, ISO: startsAt + durationMin (the chat closes then, and hides 24 hours later) */
+  endsAt: string
+  /** a few lines from whoever set it up (up to 300 characters) */
+  description?: string
+  /** called off by its host or staff ("ยกเลิกแล้ว"); stays listed so people who were going see it */
+  cancelled?: boolean
+  /** comes back every week (a weekly plan is still on): nextOccurrence() gives the next one */
+  repeatsWeekly?: boolean
+  /** the same for every week of one weekly event (findNextInSeries); absent for one-offs */
+  seriesId?: string
+  /** who else is going (ids of people I can see, never me); `going` is their count */
+  goingIds?: string[]
+  /** who set it up (a profile id), when someone did rather than the weekly plan */
+  createdBy?: string
+}
+
+/** Where an event is right now (see eventPhase in lib/events). */
+export type EventPhase = 'upcoming' | 'open' | 'closed' | 'cancelled'
+
+/** What createEvent needs (the wizard's answers). */
+export interface EventDraft {
+  roomId: string
+  title: string
+  description?: string
+  /** ISO; from now up to 60 days ahead */
+  startsAt: string
+  /** 15–240 */
+  durationMin: number
+  /** also every week, same weekday and time (Asia/Bangkok) */
+  repeatWeekly: boolean
+}
+
+/** Server features that arrive with a later migration (live mode switches each on when it finds it; demo: all on). */
+export interface ServerFeatures {
+  /** sessions + event chat (20261114000001_room_events.sql) */
+  events: boolean
+  /** "จูนคลื่น" picks shared with everyone (20261114000002_wave_quiz.sql); off: they stay on this device */
+  waveQuiz: boolean
 }
 
 export interface DailyAnswer {
@@ -239,8 +279,11 @@ export interface MatchBreakdown {
   intent: number
 }
 
+/** A "จูนคลื่น" pick: the question's first side (0) or second side (1). */
+export type WaveChoice = 0 | 1
+
 /** One person's "จูนคลื่น" picks: question id → the side they picked. */
-export type WaveAnswers = Record<string, string>
+export type WaveAnswers = Record<string, WaveChoice>
 
 export interface MatchResult {
   userId: string

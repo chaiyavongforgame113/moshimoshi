@@ -8,6 +8,7 @@ import { t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import type { Mood, Room, Session } from '@/lib/types'
+import { liveOrSoon } from '@/pages/events/lib'
 import { MOOD_BY_KEY } from '../moods'
 import { Breathe } from './Breathe'
 import { bubbleIn, MeBubble, MochiBubble, TypingRow } from './Bubbles'
@@ -373,7 +374,7 @@ function roomCard(rooms: Room[], ids: string[]): Card {
   return room ? { kind: 'room', id: room.id } : { kind: 'browse' }
 }
 
-/** happening now first, then the soonest */
+/** happening now first, then the soonest (never one that's over or called off) */
 function nextSession(sessions: Session[]): Session | undefined {
-  return [...sessions].sort((a, b) => Number(!!b.live) - Number(!!a.live) || a.dayOffset - b.dayOffset || a.time.localeCompare(b.time))[0]
+  return liveOrSoon(sessions, Date.now())[0]
 }

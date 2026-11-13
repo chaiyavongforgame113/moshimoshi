@@ -16,8 +16,8 @@ import { useRoomToggle } from './LeaveRoom'
 import { IntentsTab } from './room/IntentsTab'
 import { MembersTab } from './room/MembersTab'
 import { QuestionTab } from './room/QuestionTab'
+import { RoomEventPin } from './room/RoomEvents'
 import { RoomHero } from './room/RoomHero'
-import { SessionCard } from './room/SessionCard'
 import { useRoomChat } from './room/useRoomChat'
 
 type RoomTab = 'chat' | 'question' | 'looking' | 'people'
@@ -93,7 +93,6 @@ function RoomView({ room }: { room: Room }) {
       <RoomTopBar room={room} heroRef={heroRef} />
       <RoomHero ref={heroRef} room={room} joined={joined} onToggleJoin={() => toggle(room)} />
       {sheet}
-      <SessionCard room={room} />
 
       <Zone
         tone={room.color}
@@ -115,6 +114,7 @@ function RoomView({ room }: { room: Room }) {
             exit={{ opacity: 0, y: -6, transition: { duration: 0.14 } }}
             transition={spring.soft}
           >
+            {tab === 'chat' && <RoomEventPin room={room} />}
             {tab === 'chat' && (
               <ChatTab
                 room={room}

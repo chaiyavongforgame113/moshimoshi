@@ -1,14 +1,29 @@
-import { useEffect, useMemo } from 'react'
-import { useLang } from '@/lib/i18n'
+import { useEffect, useMemo, useState } from 'react'
+import { eventChatVisible } from '@/lib/events'
+import { useNow } from '@/lib/hooks'
+import { known, useLang } from '@/lib/i18n'
 import { questionInLang, roomInLang, sessionInLang } from '@/lib/i18n/catalog'
 import { matchAll, matchUser, MIN_LEVEL, onWavelength, type MatchExtras } from '@/lib/matching'
 import { useMoshi } from '@/lib/store'
-import type { Chat, ChatMessage, DailyQuestion, Intent, MatchResult, Room, SignalLevel, Session, User, WaveAnswers } from '@/lib/types'
+import type {
+  Chat,
+  ChatMessage,
+  DailyQuestion,
+  Intent,
+  MatchResult,
+  Room,
+  ServerFeatures,
+  SignalLevel,
+  Session,
+  User,
+  WaveAnswers,
+} from '@/lib/types'
 import { useCatalog } from './catalog'
 import { resolveId } from './live/bus'
 import type { LiveChat } from './live/map'
-import { isSample } from './live/sample'
-import { ensureRoomHistory } from './live/sync'
+import { isSample, isServerId } from './live/sample'
+import { ensureRoomHistory, ensureSession, retrySession, watchEvent } from './live/sync'
+import { isStaff } from './live/writes'
 import { DEMO_CHATS } from './mock'
 import { sameTag } from './tags'
 
@@ -80,10 +95,177 @@ export function useMyIntent(id: string | undefined): Intent | undefined {
   return useMemo(() => (id ? mine.find((i) => i.id === id || i.id === resolveId(id)) : undefined), [mine, id])
 }
 
+/** Server pieces from newer migrations: events (event chats, create / cancel) and the shared "จูนคลื่น". Demo: both on. */
+export const useServerFeatures = (): ServerFeatures => useCatalog((s) => s.features)
+
+const DAY_MS = 86_400_000
+/** what useSessions() has always shown: starting within this long */
+const SESSIONS_AHEAD_MS = 8 * DAY_MS
+
+/** A session's title (and description, when it's one we know) in the current language. */
+function eventInLang(s: Session): Session {
+  const out = sessionInLang(s)
+  return out.description ? { ...out, description: known(out.description) } : out
+}
+
+/**
+ * Upcoming and live sessions (not cancelled, starting within 8 days): the list every screen had
+ * before events. Event screens use useEvents() / useSession() instead. One drops off by itself the
+ * moment it ends (a re-render right then), not only when the list changes.
+ */
 export function useSessions(): Session[] {
   const sessions = useCatalog((s) => s.sessions)
   const lang = useLang()
-  return useMemo(() => (lang === 'en' ? sessions.map(sessionInLang) : sessions), [sessions, lang])
+  const [endAt, setEndAt] = useState<number | undefined>(undefined)
+  const now = useNow(null, endAt)
+  const list = useMemo(() => {
+    const kept = sessions.filter((s) => !s.cancelled && Date.parse(s.endsAt) > now && Date.parse(s.startsAt) <= now + SESSIONS_AHEAD_MS)
+    return lang === 'en' ? kept.map(eventInLang) : kept
+  }, [sessions, lang, now])
+  // the soonest end among them: the clock above ticks right then (the "adjust state while rendering" pattern)
+  let next: number | undefined
+  for (const s of list) {
+    const end = Date.parse(s.endsAt)
+    if (next === undefined || end < next) next = end
+  }
+  if (next !== endAt) setEndAt(next)
+  return list
+}
+
+/**
+ * Every event we know, soonest first: upcoming (up to 60 days ahead), open, finished in the last
+ * day or so (their chat is still readable for 24 hours) and cancelled ones. Optionally one room's.
+ * Sort or split them with eventPhase (lib/events).
+ */
+export function useEvents(filter?: { roomId?: string }): Session[] {
+  const sessions = useCatalog((s) => s.sessions)
+  const lang = useLang()
+  const roomId = filter?.roomId
+  return useMemo(() => {
+    const list = (roomId ? sessions.filter((s) => s.roomId === roomId) : [...sessions]).sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
+    return lang === 'en' ? list.map(eventInLang) : list
+  }, [sessions, lang, roomId])
+}
+
+/**
+ * One event by id, whatever its phase. Live mode fetches one we don't hold yet (a link to an
+ * event further out); useSessionStatus tells loading from not found.
+ */
+export function useSession(id: string | undefined): Session | undefined {
+  const real = id ? resolveId(id) : undefined
+  const session = useCatalog((s) => (real ? s.sessions.find((x) => x.id === real) : undefined))
+  const mode = useDataMode()
+  const ready = useDataReady()
+  const lang = useLang()
+  useEffect(() => {
+    if (mode === 'live' && ready && real && !session) void ensureSession(real)
+  }, [mode, ready, real, session])
+  return useMemo(() => (session && lang === 'en' ? eventInLang(session) : session), [session, lang])
+}
+
+/**
+ * 'loading' while an event is on its way, 'missing' when there's no such event (or it went with its
+ * room), 'failed' when fetching it didn't get through (offline): offer retrySessionLoad then.
+ */
+export function useSessionStatus(id: string | undefined): 'loading' | 'ready' | 'missing' | 'failed' {
+  const real = id ? resolveId(id) : undefined
+  const found = useCatalog((s) => !!real && s.sessions.some((x) => x.id === real))
+  const missing = useCatalog((s) => !!real && s.missingSessions.includes(real))
+  const failed = useCatalog((s) => !!real && s.failedSessions.includes(real))
+  const mode = useDataMode()
+  const ready = useDataReady()
+  if (found) return 'ready'
+  if (mode === 'live' && !ready) return 'loading'
+  if (!real || missing || mode === 'demo' || !isServerId(real)) return 'missing'
+  return failed ? 'failed' : 'loading'
+}
+
+/** Fetch an event again after useSessionStatus said 'failed' (no-op in demo mode). */
+export const retrySessionLoad = (id: string) => void retrySession(resolveId(id))
+
+const NO_LINES: ChatMessage[] = []
+
+/**
+ * An event's chat: history (server lines live, seeded lines in demo) plus my lines on their way,
+ * in time order, leaving out people I blocked. Empty once the chat is hidden (24 hours after the
+ * event ends). Live mode loads it and streams new lines while a screen uses this hook; until the
+ * database has events (useServerFeatures().events) it stays empty, so show "เร็วๆ นี้" then.
+ */
+export function useEventMessages(sessionId: string | undefined): ChatMessage[] {
+  const real = sessionId ? resolveId(sessionId) : undefined
+  const history = useCatalog((s) => (real ? s.eventMessages[real] : undefined))
+  const local = useMoshi((s) => (real ? s.eventMessages[real] : undefined))
+  const session = useCatalog((s) => (real ? s.sessions.find((x) => x.id === real) : undefined))
+  const blocked = useBlocked()
+  const mode = useDataMode()
+  const ready = useDataReady()
+  const on = useCatalog((s) => s.features.events)
+  useEffect(() => {
+    if (mode === 'live' && ready && on && real) return watchEvent(real)
+  }, [mode, ready, on, real])
+  const lines = useMemo(() => {
+    const all = [...(history ?? []), ...(local ?? [])]
+    return blocked.length ? all.filter((m) => !blocked.includes(m.userId)) : all
+  }, [history, local, blocked])
+  return session && !eventChatVisible(session) ? NO_LINES : lines
+}
+
+/** Has this event chat's history arrived? (demo, or without the server piece: always) */
+export const useEventHistoryReady = (sessionId: string | undefined) =>
+  useCatalog((s) => s.mode === 'demo' || !s.features.events || (!!sessionId && resolveId(sessionId) in s.eventMessages))
+
+/** Who's going to an event: me first when I am, then the others I can see. Its `going` counts everyone else. */
+export function useEventAttendees(sessionId: string | undefined): User[] {
+  const session = useSession(sessionId)
+  const people = usePeople()
+  const me = useMoshi((s) => s.me)
+  const imGoing = useMoshi((s) => !!sessionId && s.going.includes(resolveId(sessionId)))
+  return useMemo(() => {
+    const byId = new Map(people.map((u) => [u.id, u]))
+    const others = (session?.goingIds ?? []).flatMap((id) => byId.get(id) ?? [])
+    return imGoing ? [me, ...others] : others
+  }, [session, people, me, imGoing])
+}
+
+/** staff check per signed-in user (asked once per session) */
+const staffChecks = new Map<string, Promise<boolean>>()
+
+/** Am I on the team (public.is_admin())? Live only; false in demo mode and until the answer arrives. */
+export function useIsStaff(): boolean {
+  const myId = useMyId()
+  const mode = useDataMode()
+  const [staff, setStaff] = useState<{ id: string; yes: boolean } | null>(null)
+  useEffect(() => {
+    if (mode !== 'live' || !myId) return
+    let alive = true
+    let check = staffChecks.get(myId)
+    if (!check) {
+      check = isStaff().catch(() => false)
+      staffChecks.set(myId, check)
+    }
+    void check.then((yes) => alive && setStaff({ id: myId, yes }))
+    return () => {
+      alive = false
+    }
+  }, [mode, myId])
+  return mode === 'live' && staff?.id === myId && staff.yes
+}
+
+/**
+ * May I set up or cancel events in this room (a host of the room, or staff)? Without a room: in
+ * any room. Demo: yes (so the whole flow can be tried). The server checks again either way.
+ */
+export function useCanManageEvents(roomId?: string): boolean {
+  const mode = useDataMode()
+  const myId = useMyId()
+  const rooms = useCatalog((s) => s.rooms)
+  const staff = useIsStaff()
+  return useMemo(() => {
+    if (mode === 'demo') return true
+    if (staff) return true
+    if (!myId) return false
+    return rooms.some((r) => (!roomId || r.id === roomId) && r.hostIds.includes(myId))
+  }, [mode, staff, myId, rooms, roomId])
 }
 
 /** Today's question for a room, falling back to the lobby question. */
@@ -163,15 +345,31 @@ export function useChatStatus(id: string | undefined): Pick<LiveChat, 'status' |
   return useMemo(() => (status && requestedBy ? { status, requestedBy } : undefined), [status, requestedBy])
 }
 
-const NO_QUIZ: Record<string, WaveAnswers> = {}
+/** My "จูนคลื่น" picks (question id → 0 / 1; questions in data/wave). */
+export const useMyWaveAnswers = (): WaveAnswers => useMoshi((s) => s.wave)
+
+/** Someone's "จูนคลื่น" picks (mine for my id); undefined when they haven't played or I blocked them. */
+export function usePersonWaveAnswers(userId: string | undefined): WaveAnswers | undefined {
+  const all = useWaveAnswers()
+  return userId ? all[userId] : undefined
+}
 
 /**
- * "จูนคลื่น" picks by user id: the quiz part of the wave. Empty until the quiz ships, and the
- * wave simply leaves that part out for anyone who hasn't played. The quiz phase fills this
- * (my picks from useMoshi, other people's from the catalog) and every match follows.
+ * "จูนคลื่น" picks by user id (mine under my id, everyone else's I can see): the quiz part of the
+ * wave. The wave leaves that part out for anyone who hasn't played. Live mode: other people's come
+ * from the server once wave_answers exists; before that only mine (kept on this device).
  */
 export function useWaveAnswers(): Record<string, WaveAnswers> {
-  return NO_QUIZ
+  const others = useCatalog((s) => s.waveAnswers)
+  const mine = useMoshi((s) => s.wave)
+  const myId = useMyId()
+  const blocked = useBlocked()
+  return useMemo(() => {
+    const out: Record<string, WaveAnswers> = { ...others }
+    blocked.forEach((id) => delete out[id])
+    if (myId && Object.keys(mine).length) out[myId] = mine
+    return out
+  }, [others, mine, myId, blocked])
 }
 
 /** What the matcher needs beyond profiles and posts: quiz picks and the events I'm going to. */

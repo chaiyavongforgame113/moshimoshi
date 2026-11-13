@@ -20,9 +20,11 @@ export interface Draft {
  * rides just above the floating bottom nav, on desktop at the bottom of the
  * column. Being sticky (not fixed) it only shows while the chat is on screen,
  * so it never covers the room header or the tabs. It holds the composer, or
- * the join panel for someone who hasn't joined the room yet.
+ * the join panel for someone who hasn't joined the room yet (an event's chat
+ * puts its read-only note here once the event ends). Goes straight inside
+ * the chat's section.
  */
-function Dock({ desktop, card, className = '', children }: { desktop: boolean; card?: Ref<HTMLDivElement>; className?: string; children: ReactNode }) {
+export function ChatDock({ desktop, card, className = '', children }: { desktop: boolean; card?: Ref<HTMLDivElement>; className?: string; children: ReactNode }) {
   const dock = useRef<HTMLDivElement>(null)
   // phones: while the chat is still below the fold the dock can't reach its spot and would sit under
   // the bottom nav, so it fades in once the chat has scrolled up far enough
@@ -67,8 +69,19 @@ export function Composer({
   initialText = '',
   autoFocus = false,
   photo,
+  label,
+  placeholder,
+  maxLength = 1000,
+  ideasTitle,
 }: {
   roomName: string
+  /** the input's name for screen readers (default "พิมพ์ข้อความถึงห้อง…") */
+  label?: string
+  /** default "พิมพ์ทักทายเพื่อนๆ ในห้อง…" */
+  placeholder?: string
+  maxLength?: number
+  /** heading of the ideas list (default "ไอเดียทักทาย") */
+  ideasTitle?: string
   /** the photo button, for members allowed to post photos in this room */
   photo?: ReactNode
   onSend: (text: string) => void
@@ -101,21 +114,21 @@ export function Composer({
   const ideas = suggestions.length > 0
 
   return (
-    <Dock desktop={desktop} card={card} className="focus-within:ring-3 focus-within:ring-lavender">
+    <ChatDock desktop={desktop} card={card} className="focus-within:ring-3 focus-within:ring-lavender">
       {/* @container: the Ideas button shows its word once the dock has room for it */}
       <form onSubmit={submit} className={`@container flex items-center gap-2 p-1.5 ${photo || ideas ? 'pl-1.5' : 'pl-5'}`}>
         {photo}
-        {ideas && <Ideas ideas={suggestions} anchor={card} input={input} onFill={setText} title={t('ไอเดียทักทาย', 'Ways to say hi')} />}
+        {ideas && <Ideas ideas={suggestions} anchor={card} input={input} onFill={setText} title={ideasTitle ?? t('ไอเดียทักทาย', 'Ways to say hi')} />}
         <label htmlFor={id} className="sr-only">
-          {t(`พิมพ์ข้อความถึงห้อง${roomName}`, `Message ${roomName}`)}
+          {label ?? t(`พิมพ์ข้อความถึงห้อง${roomName}`, `Message ${roomName}`)}
         </label>
         <input
           ref={input}
           id={id}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          maxLength={1000}
-          placeholder={t('พิมพ์ทักทายเพื่อนๆ ในห้อง…', 'Say hi to the room…')}
+          maxLength={maxLength}
+          placeholder={placeholder ?? t('พิมพ์ทักทายเพื่อนๆ ในห้อง…', 'Say hi to the room…')}
           autoComplete="off"
           enterKeyHint="send"
           className="min-h-11 min-w-0 flex-1 bg-transparent text-base leading-[1.8] text-ink outline-none placeholder:text-ink-faint"
@@ -124,7 +137,7 @@ export function Composer({
           <SendHorizontal size={20} strokeWidth={2.4} />
         </IconButton>
       </form>
-    </Dock>
+    </ChatDock>
   )
 }
 
@@ -159,7 +172,7 @@ export function JoinToChat({
   }, [draft, reduce])
 
   return (
-    <Dock desktop={desktop} card={card}>
+    <ChatDock desktop={desktop} card={card}>
       {/* narrow phones: the words on top, the button on its own full-width line below */}
       <div role="group" aria-labelledby={`${id}-title`} className="flex flex-wrap items-center gap-x-3 gap-y-2 p-2 pl-4">
         {/* wrapped: the avatar's own inline-flex would fight a hidden on it */}
@@ -183,6 +196,6 @@ export function JoinToChat({
           <JoinButton room={room} joined={false} onToggle={onJoin} className="w-full" />
         </div>
       </div>
-    </Dock>
+    </ChatDock>
   )
 }

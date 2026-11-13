@@ -24,6 +24,7 @@ import type {
   ChatMessageRow,
   ChatRow,
   ChatStatus,
+  EventMessageRow,
   IntentRow,
   ProfileRow,
   QuestionRow,
@@ -193,10 +194,15 @@ export function intentColumns(i: Omit<Intent, 'id' | 'userId' | 'postedMinutesAg
   }
 }
 
-/** Team-hosted sessions have no host profile: `hostName` carries the label. */
-export function toSession(row: SessionRow, going: number, now = Date.now()): Session {
+/**
+ * Team-hosted sessions have no host profile: `hostName` carries the label. `others` = who else is
+ * going (everyone but me); `goingIds` keeps the ones I can see (a block hides the rest).
+ */
+export function toSession(row: SessionRow, others: string[], visibleIds: string[], now = Date.now()): Session {
   const start = Date.parse(row.starts_at)
   const duration = row.duration_min ?? 60
+  const end = start + duration * 60_000
+  const cancelled = !!row.cancelled_at
   return {
     id: row.id,
     roomId: row.room_id,
@@ -204,11 +210,23 @@ export function toSession(row: SessionRow, going: number, now = Date.now()): Ses
     dayOffset: dayOffset(row.starts_at, now),
     time: hhmm(row.starts_at),
     durationMin: duration,
-    going,
+    going: others.length,
+    goingIds: visibleIds,
     hostId: row.host_id ?? '',
-    live: now >= start && now < start + duration * 60_000,
+    live: !cancelled && now >= start && now < end,
+    startsAt: new Date(start).toISOString(),
+    endsAt: new Date(end).toISOString(),
     ...(row.host_name ? { hostName: row.host_name } : {}),
+    ...(row.description?.trim() ? { description: row.description } : {}),
+    ...(cancelled ? { cancelled } : {}),
+    ...(row.plan_id != null ? { repeatsWeekly: true, seriesId: `plan-${row.plan_id}` } : {}),
+    ...(row.created_by ? { createdBy: row.created_by } : {}),
   }
+}
+
+/** An event chat line → a chat message (same shape as room lines, so the room chat parts can show it). */
+export function toEventMessage(row: EventMessageRow, now = Date.now()): ChatMessage {
+  return { id: row.id, userId: row.user_id, text: row.body, at: messageTime(row.created_at, now) }
 }
 
 export function toQuestion(q: QuestionRow, answers: AnswerRow[], sameCount: (a: AnswerRow) => number, mySameBy: string[] = []): DailyQuestion {
