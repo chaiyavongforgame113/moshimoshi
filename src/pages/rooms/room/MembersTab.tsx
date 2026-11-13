@@ -35,10 +35,10 @@ export function MembersTab({ room, onGreet }: { room: Room; onGreet: (u: User) =
       </h2>
       <p className="text-sm text-ink-soft">{t('เรียงจากคนที่สัญญาณถูกคอกับเรามากที่สุด', 'Sorted by strongest vibe signal with you')}</p>
 
-      {/* the 5-step scale, so the bars mean something at a glance */}
-      <ol aria-label={t('ระดับสัญญาณถูกคอ', 'Vibe signal levels')} className="no-scrollbar -mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:px-0">
+      {/* the 5-step scale, so the bars mean something at a glance; it wraps onto more lines, never scrolls sideways */}
+      <ol aria-label={t('ระดับสัญญาณถูกคอ', 'Vibe signal levels')} className="mt-3 flex flex-wrap gap-2">
         {SIGNAL_LEVELS.map((s) => (
-          <li key={s.level} className="inline-flex h-9 shrink-0 items-center rounded-full bg-white/75 px-3 shadow-[var(--shadow-soft)]">
+          <li key={s.level} className="inline-flex h-9 max-w-full items-center rounded-full bg-white/75 px-3 shadow-[var(--shadow-soft)]">
             <SignalMeter level={s.level} size="xs" short />
           </li>
         ))}

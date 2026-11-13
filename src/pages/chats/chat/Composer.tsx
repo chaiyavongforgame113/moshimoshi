@@ -4,12 +4,14 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type Ref, type Ref
 import { useCoarsePointer } from '@/lib/hooks'
 import { t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
+import { Ideas } from './Ideas'
 
 interface ComposerProps {
   value: string
   onChange: (v: string) => void
   onSend: (text: string) => void
   name: string
+  /** ready-made lines behind the "ไอเดีย / Ideas" button: picking one puts it in the text box */
   quickReplies: string[]
   /** step 2 of the trust ladder isn't unlocked yet */
   locked: boolean
@@ -31,6 +33,7 @@ export function Composer({ value, onChange, onSend, name, quickReplies, locked, 
   const coarse = useCoarsePointer()
   const [hint, setHint] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
+  const box = useRef<HTMLDivElement>(null)
 
   // grow with the text, up to ~5 lines
   useLayoutEffect(() => {
@@ -53,22 +56,8 @@ export function Composer({ value, onChange, onSend, name, quickReplies, locked, 
   }
 
   return (
-    <div className="safe-bottom sticky bottom-0 z-30 border-t border-line/70 bg-cream/85 px-3 pt-1.5 backdrop-blur-xl lg:static lg:rounded-b-[2rem] lg:bg-white/70 lg:px-5 lg:pb-4">
-      <div role="group" aria-label={t('ตอบกลับเร็ว', 'Quick replies')} className="no-scrollbar -mx-3 flex gap-1.5 overflow-x-auto px-3 lg:-mx-5 lg:px-5">
-        {quickReplies.map((q) => (
-          <button key={q} type="button" onClick={() => onSend(q)} className="group inline-flex h-11 shrink-0 items-center">
-            <motion.span
-              whileTap={{ scale: 0.9 }}
-              transition={spring.bouncy}
-              className="inline-flex h-8 items-center rounded-full border border-line bg-white px-3.5 text-sm whitespace-nowrap text-ink shadow-[var(--shadow-soft)] group-hover:bg-cream-2"
-            >
-              {q}
-            </motion.span>
-          </button>
-        ))}
-      </div>
-
-      <div className="relative">
+    <div className="safe-bottom sticky bottom-0 z-30 border-t border-line/70 bg-cream/85 px-3 pt-2.5 backdrop-blur-xl lg:static lg:rounded-b-[2rem] lg:bg-white/70 lg:px-5 lg:pt-4 lg:pb-4">
+      <div ref={box} className="relative">
         <AnimatePresence>
           {hint && (
             <motion.p
@@ -88,8 +77,9 @@ export function Composer({ value, onChange, onSend, name, quickReplies, locked, 
             </motion.p>
           )}
         </AnimatePresence>
+        {/* @container: the Ideas button shows its word once the composer has room for it */}
         <form
-          className="flex items-end gap-2"
+          className="@container flex items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault()
             submit()
@@ -143,6 +133,7 @@ export function Composer({ value, onChange, onSend, name, quickReplies, locked, 
               }}
             />
           )}
+          <Ideas ideas={quickReplies} anchor={box} input={inputRef} onFill={onChange} title={t('ไอเดียชวนคุย', 'Chat ideas')} />
           <label htmlFor={`${id}-msg`} className="sr-only">
             {t(`พิมพ์ข้อความถึง${name}`, `Write a message to ${name}`)}
           </label>

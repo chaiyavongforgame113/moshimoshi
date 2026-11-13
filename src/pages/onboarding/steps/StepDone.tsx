@@ -133,11 +133,11 @@ function ScaleLegend() {
   return (
     <motion.div variants={fadeUp} className="mt-4 rounded-3xl bg-white/60 p-4">
       <p className="mb-2.5 text-xs font-semibold text-ink-soft">{t('สัญญาณถูกคอมี 5 ระดับ', 'The vibe signal has 5 levels')}</p>
-      <ol className="no-scrollbar -mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1">
+      <ol className="flex flex-wrap gap-2">
         {SIGNAL_LEVELS.map((s) => (
-          <li key={s.level} className="flex shrink-0 snap-start flex-col items-start gap-1 rounded-2xl bg-white px-3 py-2.5">
+          <li key={s.level} className="flex min-w-0 flex-col items-start gap-1 rounded-2xl bg-white px-3 py-2.5">
             <SignalMeter level={s.level as SignalLevel} size="xs" showLabel={false} />
-            <span className="text-xs font-semibold whitespace-nowrap text-ink">{s.label}</span>
+            <span className="text-xs font-semibold text-ink">{s.label}</span>
           </li>
         ))}
       </ol>

@@ -1,9 +1,9 @@
 import { useEffect, useMemo } from 'react'
 import { useLang } from '@/lib/i18n'
 import { questionInLang, roomInLang, sessionInLang } from '@/lib/i18n/catalog'
-import { matchAll, matchUser } from '@/lib/matching'
+import { matchAll, matchUser, onWavelength } from '@/lib/matching'
 import { useMoshi } from '@/lib/store'
-import type { Chat, ChatMessage, DailyQuestion, Intent, MatchResult, Room, Session, User } from '@/lib/types'
+import type { Chat, ChatMessage, DailyQuestion, Intent, MatchResult, Room, SignalLevel, Session, User } from '@/lib/types'
 import { useCatalog } from './catalog'
 import { resolveId } from './live/bus'
 import type { LiveChat } from './live/map'
@@ -148,6 +148,15 @@ export function useMatches(): MatchResult[] {
   const people = usePeople()
   const intents = useCatalog((s) => s.intents)
   return useMemo(() => matchAll(me, myIntents, people, intents), [me, myIntents, people, intents])
+}
+
+/**
+ * The people to suggest: only "ถูกคอ" (MIN_LEVEL) and up, best first. Screens that
+ * recommend people use this; useMatches() stays for looking up anyone's signal.
+ */
+export function useWavelengthMatches(min?: SignalLevel): MatchResult[] {
+  const matches = useMatches()
+  return useMemo(() => onWavelength(matches, min), [matches, min])
 }
 
 export function useMatch(userId: string | undefined): MatchResult | undefined {

@@ -5,6 +5,7 @@ import { Link } from 'react-router'
 import { Avatar, Button } from '@/components/ui'
 import { useDailyQuestion, usePeople } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
+import { flags } from '@/lib/flags'
 import { useIsDesktop } from '@/lib/hooks'
 import { displayName, getLang, known, t } from '@/lib/i18n'
 import { fadeUp, spring, stagger } from '@/lib/motion'
@@ -190,9 +191,14 @@ export function ChatTab({
               ))}
             </li>
           )}
-          {!seeded && !loading && question && (
+          {!seeded && !loading && flags.dailyQuestion && question && (
             <motion.li variants={fadeUp} className="mb-4">
               <QuestionStarter text={question.text} onOpen={onOpenQuestion} />
+            </motion.li>
+          )}
+          {!loading && messages.length === 0 && !(flags.dailyQuestion && question) && (
+            <motion.li variants={fadeUp} className="mb-4">
+              <QuietStart joined={joined} />
             </motion.li>
           )}
           {items.map((item) => {
@@ -498,7 +504,36 @@ function WelcomeRow({ message, mine, people, me, isMine, onGreet }: { message: C
   )
 }
 
-/** Quiet room: open with today's question instead of an empty chat. */
+/** Quiet room (no messages yet): a warm nudge to send the first hello, from the composer or join panel below. */
+function QuietStart({ joined }: { joined: boolean }) {
+  const reduce = useReducedMotion()
+  return (
+    <div className="card relative flex flex-col items-center overflow-hidden px-5 py-7 text-center">
+      <span aria-hidden className="absolute -top-10 -right-8 size-32 rounded-full bg-butter/40 blur-2xl" />
+      <span aria-hidden className="absolute -bottom-12 -left-10 size-32 rounded-full bg-mint/30 blur-2xl" />
+      <span className="relative inline-flex">
+        <Avatar color="butter" size={72} face="wink" />
+        <motion.span
+          aria-hidden
+          className="absolute -top-1 -right-3 flex size-9 items-center justify-center rounded-full bg-white text-ink shadow-[var(--shadow-soft)]"
+          style={{ originX: 0.7, originY: 0.9 }}
+          animate={reduce ? undefined : { rotate: [0, 18, -8, 18, 0] }}
+          transition={{ duration: 1.2, repeat: 2, repeatDelay: 1.6 }}
+        >
+          <Hand size={18} strokeWidth={2.4} />
+        </motion.span>
+      </span>
+      <p className="relative mt-3 font-display text-xl leading-snug font-semibold text-ink">{t('ห้องยังเงียบๆ อยู่เลย', "It's quiet in here")}</p>
+      <p className="relative mt-1 max-w-xs text-sm [overflow-wrap:anywhere] text-ink-soft">
+        {joined
+          ? t('ทักทายเป็นคนแรกเลยไหม ใครแวะมาก็จะเจอคำทักของเรารอต้อนรับอยู่', 'Be the first to say hi. Whoever pops in next will find your hello waiting')
+          : t('เข้าห้องแล้วทักทายเป็นคนแรกเลยนะ ใครแวะมาก็จะเจอคำทักของเรา', 'Join and be the first to say hi. Whoever pops in next will see it')}
+      </p>
+    </div>
+  )
+}
+
+/** Quiet room: open with today's question instead of an empty chat (only while flags.dailyQuestion is on). */
 function QuestionStarter({ text, onOpen }: { text: string; onOpen: () => void }) {
   return (
     <div className="card relative overflow-hidden p-5">

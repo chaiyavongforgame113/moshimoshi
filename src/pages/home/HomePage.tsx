@@ -5,6 +5,7 @@ import { Link } from 'react-router'
 import { InstallSheet } from '@/app/InstallSheet'
 import { KineticText } from '@/components/motion'
 import { Avatar, IconButton, PageHeader } from '@/components/ui'
+import { flags } from '@/lib/flags'
 import { useInstallPrompt } from '@/lib/hooks'
 import { t } from '@/lib/i18n'
 import { fadeUp, stagger } from '@/lib/motion'
@@ -77,10 +78,14 @@ export default function HomePage() {
         <SessionsCarousel />
         <TopMatches />
         <IntentMatches />
-        <div className="grid gap-5 md:grid-cols-2 md:gap-6">
-          <DailyQuestion />
-          <MyRooms />
-        </div>
+        {flags.dailyQuestion ? (
+          <div className="grid gap-5 md:grid-cols-2 md:gap-6">
+            <DailyQuestion />
+            <MyRooms />
+          </div>
+        ) : (
+          <MyRooms wide />
+        )}
       </div>
 
       <InstallSheet open={installOpen} onClose={() => setInstallOpen(false)} />

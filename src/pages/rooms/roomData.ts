@@ -1,6 +1,7 @@
 // Small derived-data helpers shared by the rooms list and the room page.
 import { sameTag, TAG_BY_ID, tagsInText } from '@/data/tags'
 import { getLang, L, t, texts } from '@/lib/i18n'
+import { isLive } from '@/lib/supabase'
 import type { IntentRole, IntentWhen, Room, Session, User } from '@/lib/types'
 
 export const roomMembers = (roomId: string, people: User[]): User[] => people.filter((u) => u.rooms.includes(roomId))
@@ -37,15 +38,29 @@ export function kindredMembers(roomId: string, me: User, people: User[]): User[]
   return roomMembers(roomId, people).filter((u) => u.tags.some((t) => me.tags.some((mine) => sameTag(mine, t))))
 }
 
-/** "For you" score: shared room tags (loves count extra) + like-minded members + a little life. */
-export function roomAffinity(room: Room, me: User, people: User[]): number {
-  const shared = sharedRoomTags(room, me)
-  const loves = shared.filter((t) => me.loves.includes(t)).length
-  return shared.length + loves * 0.5 + kindredMembers(room.id, me, people).length * 0.2 + (room.isLobby ? 0.4 : 0) + room.onlineCount / 400
+/**
+ * Rooms with other people chatting now first (busiest first); quiet rooms keep their order, the lobby leading.
+ * In live mode a joined room's online count includes me (`mine`), so my own +1 is left out:
+ * my joined rooms don't jump ahead of rooms to discover.
+ */
+export function liveFirst(rooms: Room[], mine: readonly string[] = []): Room[] {
+  const others = (r: Room) => r.onlineCount - (isLive && mine.includes(r.id) ? 1 : 0)
+  return [...rooms].sort((a, b) => others(b) - others(a) || Number(!!b.isLobby) - Number(!!a.isLobby))
 }
 
-export function rankRooms(rooms: Room[], me: User, people: User[]): Room[] {
-  return [...rooms].sort((a, b) => roomAffinity(b, me, people) - roomAffinity(a, me, people))
+/** A session in this room that's happening right now. */
+export function liveSession(roomId: string, sessions: Session[]): Session | undefined {
+  return sessions.find((s) => s.roomId === roomId && s.live)
+}
+
+/** The session a room's event card shows: one happening now, else the next one. */
+export const eventSession = (roomId: string, sessions: Session[]): Session | undefined =>
+  liveSession(roomId, sessions) ?? nextSession(roomId, sessions)
+
+/** Events tab order: sessions live right now first, then the soonest. */
+export const sortByEvent = (sessions: Session[]) => {
+  const bySession = sortBySession(sessions)
+  return (a: Room, b: Room) => Number(!!liveSession(b.id, sessions)) - Number(!!liveSession(a.id, sessions)) || bySession(a, b)
 }
 
 /** Matches name / tagline / tag labels, and Thai slang via tagsInText ("วาโล" → Valorant). */

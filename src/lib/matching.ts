@@ -411,11 +411,27 @@ export function matchUser(
   }
 }
 
+/**
+ * Everyone but me, best signal first. Returns the whole population on purpose: a profile
+ * page needs a signal for anyone. Lists that suggest people go through onWavelength().
+ */
 export function matchAll(me: User, myIntents: Intent[] = [], population: User[] = [], intents: Intent[] = []): MatchResult[] {
   return population
     .filter((u) => u.id !== me.id)
     .map((u) => matchUser(me, u, myIntents, population, intents))
     .sort((a, b) => b.score - a.score)
+}
+
+/**
+ * The lowest signal we ever suggest: level 3, "ถูกคอ" (Good vibes). People below it are never
+ * suggested anywhere (home, people, rooms, after posting); they only see their signal on a
+ * profile they open themselves. The one place to tune how picky suggestions are.
+ */
+export const MIN_LEVEL: SignalLevel = 3
+
+/** Only people at `min` or above, keeping the given (high-to-low) order. */
+export function onWavelength(matches: MatchResult[], min: SignalLevel = MIN_LEVEL): MatchResult[] {
+  return matches.filter((m) => m.level >= min)
 }
 
 export const BREAKDOWN_LABEL: Readonly<Record<keyof MatchBreakdown, string>> = texts({

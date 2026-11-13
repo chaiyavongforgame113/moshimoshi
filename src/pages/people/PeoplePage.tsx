@@ -96,7 +96,7 @@ export default function PeoplePage() {
         <div
           role="group"
           aria-label={t('กรองรายชื่อ', 'Filter the list')}
-          className="no-scrollbar zone-bleed mt-3 flex gap-2 overflow-x-auto border-t-2 border-dashed border-lavender/50 py-1 pt-3 lg:mx-0 lg:flex-wrap lg:px-0"
+          className="mt-3 flex flex-wrap gap-2 border-t-2 border-dashed border-lavender/50 py-1 pt-3"
         >
           {FILTERS.map((f) => (
             <Chip key={f.key} selected={filter === f.key} onClick={() => setFilter(f.key)} icon={f.icon} color={f.key === 'online' ? 'mint' : 'butter'}>

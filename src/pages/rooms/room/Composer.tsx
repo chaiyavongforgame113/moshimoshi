@@ -1,10 +1,11 @@
-import { AnimatePresence, animate, motion, useReducedMotion } from 'motion/react'
+import { animate, motion, useReducedMotion } from 'motion/react'
 import { SendHorizontal } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type Ref } from 'react'
 import { Avatar, IconButton } from '@/components/ui'
 import { t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import type { Room } from '@/lib/types'
+import { Ideas } from '@/pages/chats/chat/Ideas'
 import { JoinButton } from '../bits'
 
 /** A hello tapped before joining: it waits in the composer until I'm in the room (the server only takes members' messages). */
@@ -54,7 +55,10 @@ function Dock({ desktop, card, className = '', children }: { desktop: boolean; c
   )
 }
 
-/** Room chat composer. The quick greetings sit in the same dock as the input, so nothing floats loose over the messages. */
+/**
+ * Room chat composer. The suggested greetings wait behind the "ไอเดีย / Ideas" button beside the input
+ * (a short list that opens above the dock); picking one puts it in the input, ready to tweak and send.
+ */
 export function Composer({
   roomName,
   onSend,
@@ -78,6 +82,7 @@ export function Composer({
   const id = useId()
   const [text, setText] = useState(initialText)
   const input = useRef<HTMLInputElement>(null)
+  const card = useRef<HTMLDivElement>(null)
   // only when it first shows up: the dock is already where the join panel was, so nothing needs to scroll
   const focusOnMount = useRef(autoFocus)
   useEffect(() => {
@@ -93,37 +98,14 @@ export function Composer({
     onSend(msg)
     setText('')
   }
+  const ideas = suggestions.length > 0
 
   return (
-    <Dock desktop={desktop} className="focus-within:ring-3 focus-within:ring-lavender">
-      <AnimatePresence initial={false}>
-        {suggestions.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0, transition: { duration: 0.15 } }}
-            transition={spring.soft}
-            className="no-scrollbar flex gap-1.5 overflow-x-auto px-2 pt-2 [mask-image:linear-gradient(to_right,#000_calc(100%-1.25rem),transparent)]"
-            aria-label={t('ข้อความทักทายแนะนำ', 'Suggested greetings')}
-            role="group"
-          >
-            {suggestions.map((s) => (
-              <motion.button
-                key={s}
-                type="button"
-                onClick={() => onSend(s)}
-                whileTap={{ scale: 0.92 }}
-                transition={spring.bouncy}
-                className="inline-flex h-10 shrink-0 items-center rounded-full bg-cream-2 px-3.5 text-sm font-semibold whitespace-nowrap text-ink transition-colors last:mr-5 hover:bg-cream-3"
-              >
-                {s}
-              </motion.button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <form onSubmit={submit} className={`flex items-center gap-2 p-1.5 ${photo ? 'pl-1.5' : 'pl-5'}`}>
+    <Dock desktop={desktop} card={card} className="focus-within:ring-3 focus-within:ring-lavender">
+      {/* @container: the Ideas button shows its word once the dock has room for it */}
+      <form onSubmit={submit} className={`@container flex items-center gap-2 p-1.5 ${photo || ideas ? 'pl-1.5' : 'pl-5'}`}>
         {photo}
+        {ideas && <Ideas ideas={suggestions} anchor={card} input={input} onFill={setText} title={t('ไอเดียทักทาย', 'Ways to say hi')} />}
         <label htmlFor={id} className="sr-only">
           {t(`พิมพ์ข้อความถึงห้อง${roomName}`, `Message ${roomName}`)}
         </label>

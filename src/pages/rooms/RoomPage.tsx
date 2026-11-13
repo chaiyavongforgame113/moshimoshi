@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { Avatar, ButtonLink, IconButton, RoomIcon, tabId, tabPanelId, Tabs, Zone, type TabItem } from '@/components/ui'
 import { useDataReady, useIntents, useRoom, useRoomHistoryReady } from '@/data/hooks'
+import { flags } from '@/lib/flags'
 import { t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
@@ -20,7 +21,8 @@ import { SessionCard } from './room/SessionCard'
 import { useRoomChat } from './room/useRoomChat'
 
 type RoomTab = 'chat' | 'question' | 'looking' | 'people'
-const TAB_KEYS: RoomTab[] = ['chat', 'question', 'looking', 'people']
+// "คำถามวันนี้" is switched off (flags.dailyQuestion): without its key, ?tab=question lands on the chat
+const TAB_KEYS: RoomTab[] = (['chat', 'question', 'looking', 'people'] as RoomTab[]).filter((k) => k !== 'question' || flags.dailyQuestion)
 
 export default function RoomPage() {
   const { roomId = '' } = useParams()
@@ -53,12 +55,17 @@ function RoomView({ room }: { room: Room }) {
     if (joined) setDraft(null)
   }, [joined])
 
+  // an old link or a tab that's switched off (?tab=question): tidy the address back to the chat
+  useEffect(() => {
+    if (raw && !TAB_KEYS.includes(raw)) setParams({}, { replace: true, preventScrollReset: true })
+  }, [raw, setParams])
+
   const tabs: TabItem<RoomTab>[] = [
-    { key: 'chat', label: t('คุยกัน', 'Chat'), icon: <MessagesSquare size={16} strokeWidth={2.4} /> },
-    { key: 'question', label: t('คำถามวันนี้', 'Question'), icon: <MessageCircleQuestion size={16} strokeWidth={2.4} /> },
-    { key: 'looking', label: t('หาเพื่อน', 'Find friends'), icon: <Search size={16} strokeWidth={2.4} />, badge: lookingCount },
-    { key: 'people', label: t('คน', 'People'), icon: <Users size={16} strokeWidth={2.4} /> },
-  ]
+    { key: 'chat' as const, label: t('คุยกัน', 'Chat'), icon: <MessagesSquare size={16} strokeWidth={2.4} /> },
+    { key: 'question' as const, label: t('คำถามวันนี้', 'Question'), icon: <MessageCircleQuestion size={16} strokeWidth={2.4} /> },
+    { key: 'looking' as const, label: t('หาเพื่อน', 'Find friends'), icon: <Search size={16} strokeWidth={2.4} />, badge: lookingCount },
+    { key: 'people' as const, label: t('คน', 'People'), icon: <Users size={16} strokeWidth={2.4} /> },
+  ].filter((item) => TAB_KEYS.includes(item.key))
 
   const goTab = (k: RoomTab, opts: { jumpToEnd?: boolean } = {}) => {
     setJump(!!opts.jumpToEnd)
@@ -124,7 +131,7 @@ function RoomView({ room }: { room: Room }) {
                 loading={!historyReady}
               />
             )}
-            {tab === 'question' && <QuestionTab room={room} />}
+            {flags.dailyQuestion && tab === 'question' && <QuestionTab room={room} />}
             {tab === 'looking' && <IntentsTab room={room} />}
             {tab === 'people' && <MembersTab room={room} onGreet={greetMember} />}
           </motion.div>

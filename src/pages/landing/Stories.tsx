@@ -1,13 +1,13 @@
-import { motion, useReducedMotion, useScroll, useTransform, type MotionValue } from 'motion/react'
+import { motion, useReducedMotion, useScroll, useTransform, type MotionValue, type Variants } from 'motion/react'
 import { useRef } from 'react'
-import { ChevronsRight, Quote } from 'lucide-react'
+import { Quote } from 'lucide-react'
 import { Avatar, Chip, RoomIcon, SignalMeter, type MochiFace } from '@/components/ui'
 import { ROOM_BY_ID } from '@/data/mock'
 import { MOCHI } from '@/lib/colors'
 import { L, loc, t } from '@/lib/i18n'
 import { roomInLang } from '@/lib/i18n/catalog'
 import { useIsDesktop } from '@/lib/hooks'
-import { fadeUp, stagger } from '@/lib/motion'
+import { spring } from '@/lib/motion'
 import type { MochiColor, SignalLevel } from '@/lib/types'
 import { TiltCard } from './fx'
 import { SectionIntro } from './shared'
@@ -118,13 +118,31 @@ function StoryCard({ story }: { story: Story }) {
   )
 }
 
-// desktop columns drift at different speeds while the section scrolls by
-const DRIFT = [36, -28, 64, -18]
+// desktop: the two columns drift at different speeds while the section scrolls by (a whole column moves together, so cards never run into each other)
+const DRIFT = [36, -28]
 
-function StoryItem({ story, i, progress, drift }: { story: Story; i: number; progress: MotionValue<number>; drift: boolean }) {
-  const y = useTransform(progress, [0, 1], drift ? [DRIFT[i % DRIFT.length], -DRIFT[i % DRIFT.length]] : [0, 0])
+// each card pops in as it scrolls into view (on phones they come one by one down the stack); the right column a beat after the left
+const REVEAL: Variants = {
+  hidden: { opacity: 0, y: 18 },
+  show: (col: number) => ({ opacity: 1, y: 0, transition: { ...spring.soft, delay: col * 0.1 } }),
+}
+const REVEAL_STILL: Variants = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { duration: 0.2 } },
+}
+
+function StoryItem({ story, i, progress, drift, reduce }: { story: Story; i: number; progress: MotionValue<number>; drift: boolean; reduce: boolean }) {
+  const d = DRIFT[i % DRIFT.length]
+  const y = useTransform(progress, [0, 1], drift ? [d, -d] : [0, 0])
   return (
-    <motion.li variants={fadeUp} className="w-[82%] max-w-[22rem] shrink-0 snap-start md:w-auto md:max-w-none lg:even:mt-14">
+    <motion.li
+      variants={reduce ? REVEAL_STILL : REVEAL}
+      custom={i % 2}
+      initial="hidden"
+      whileInView="show"
+      viewport={{ once: true, amount: 0.25 }}
+      className="min-w-0"
+    >
       <motion.div style={{ y }} className="h-full">
         <StoryCard story={story} />
       </motion.div>
@@ -152,21 +170,13 @@ export function Stories() {
             'The kind of moments we hope happen here every day. Friendships can start at any signal level.',
           )}
         </SectionIntro>
-        <p className="mt-4 flex items-center gap-1 text-sm font-semibold text-ink-soft md:hidden" aria-hidden>
-          {t('ปัดดูเรื่องอื่น', 'Swipe for more')} <ChevronsRight size={16} />
-        </p>
       </div>
-      <motion.ul
-        variants={stagger(0.1)}
-        initial="hidden"
-        whileInView="show"
-        viewport={{ once: true, amount: 0.15 }}
-        className="no-scrollbar mt-4 flex snap-x snap-mandatory scroll-px-4 gap-4 overflow-x-auto px-4 pt-6 pb-12 sm:scroll-px-6 sm:px-6 md:mx-auto md:mt-8 md:grid md:max-w-6xl md:grid-cols-2 md:gap-6 md:overflow-visible md:pb-0 lg:grid-cols-4"
-      >
+      {/* phones: one story under another; wider: two columns. Only ever scrolls top to bottom */}
+      <ul className="mx-auto mt-8 grid max-w-xl gap-5 px-4 sm:px-6 md:max-w-4xl md:grid-cols-2 md:gap-6 lg:mt-10 lg:max-w-5xl lg:gap-8">
         {STORIES.map((s, i) => (
-          <StoryItem key={s.name} story={s} i={i} progress={scrollYProgress} drift={desktop && !reduce} />
+          <StoryItem key={s.name} story={s} i={i} progress={scrollYProgress} drift={desktop && !reduce} reduce={!!reduce} />
         ))}
-      </motion.ul>
+      </ul>
     </section>
   )
 }

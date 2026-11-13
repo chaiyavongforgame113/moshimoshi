@@ -29,8 +29,7 @@ export interface ZoneProps {
 /**
  * One framed area of a page: a clear border in the zone's colour, a tinted title band with a
  * dashed line under it, then the content. A page reads as a few calm blocks instead of one
- * long mix, so it's obvious where each topic starts and ends. Content that scrolls sideways
- * can run to the frame's inner edge with `zone-bleed`.
+ * long mix, so it's obvious where each topic starts and ends.
  */
 export function Zone({ title, icon, note, action, head, tone = 'peach', id, children, className = '', bodyClassName = '' }: ZoneProps) {
   const auto = useId()

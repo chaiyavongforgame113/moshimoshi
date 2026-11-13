@@ -1,13 +1,13 @@
 import { motion } from 'motion/react'
-import { ChevronRight, MessageCircleHeart, MessagesSquare, Radio, Send } from 'lucide-react'
+import { MessageCircleHeart, MessagesSquare, Radio, Send } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router'
 import { KineticText, Reveal } from '@/components/motion'
-import { Avatar, ButtonLink, PageHeader, Section, SignalMeter, zoneAction } from '@/components/ui'
+import { Avatar, ButtonLink, PageHeader, Section, ShowMore, SignalMeter } from '@/components/ui'
 import { useChats, useDataReady, useMatches, usePeople } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
 import { known, t } from '@/lib/i18n'
-import { fadeUp, spring, stagger } from '@/lib/motion'
+import { fadeUp, spring } from '@/lib/motion'
 import type { Chat, MatchResult, User } from '@/lib/types'
 import { useIsMine } from '@/pages/people/lib'
 import { Rings } from '@/pages/people/profile/Rings'
@@ -15,6 +15,11 @@ import { ListSkeleton } from '@/pages/people/Skeleton'
 import { chatPhase, lastMessage, previewText, setAside } from './lib'
 
 const MotionLink = motion.create(Link)
+
+/** hello cards (sent or waiting for us) shown before "ดูเพิ่ม" */
+const FIRST_HELLOS = 3
+/** chat rows shown before "ดูเพิ่ม" (more when an unread chat sits further down) */
+const FIRST_CHATS = 6
 
 interface Row {
   chat: Chat
@@ -46,8 +51,9 @@ export default function ChatsPage() {
   }, [chats, users, matches, isMine])
 
   const total = incoming.length + waiting.length + talking.length
-  const chattingWith = new Set(chats.map((c) => c.withUserId))
-  const suggestions = matches.filter((m) => !chattingWith.has(m.userId) && users.has(m.userId)).slice(0, 4)
+  // the chat list starts short, but never hides an unread chat behind "ดูเพิ่ม"
+  const lastUnread = talking.reduce((at, r, i) => (r.chat.unread > 0 ? i : at), -1)
+  const firstChats = Math.max(FIRST_CHATS, lastUnread + 1)
 
   return (
     <div>
@@ -66,25 +72,33 @@ export default function ChatsPage() {
               title={t('มีคนทักแชทมา', 'Someone said hi')}
               note={t('ตอบรับหรือไว้ก่อนก็ได้', 'Accept, or maybe later')}
             >
-              <motion.ul variants={stagger(0.06)} initial="hidden" animate="show" className="grid gap-3 sm:grid-cols-2">
-                {incoming.map((r) => (
-                  <motion.li key={r.chat.id} variants={fadeUp}>
-                    <HelloCard row={r} incoming isMine={isMine} />
-                  </motion.li>
-                ))}
-              </motion.ul>
+              <motion.div variants={fadeUp} initial="hidden" animate="show">
+                <ShowMore
+                  items={incoming}
+                  initial={FIRST_HELLOS}
+                  getKey={(r) => r.chat.id}
+                  listClassName="grid gap-3 sm:grid-cols-2"
+                  itemClassName="min-w-0"
+                  moreLabel={(n) => t(`ดูคำทักเพิ่ม (อีก ${n})`, `Show more hellos (${n} more)`)}
+                  render={(r) => <HelloCard row={r} incoming isMine={isMine} />}
+                />
+              </motion.div>
             </Section>
           )}
 
           {talking.length > 0 && (
             <Section tone="sky" icon={<MessagesSquare size={18} strokeWidth={2.4} />} title={t('คุยอยู่', 'Chatting')}>
-              <motion.ul variants={stagger(0.06)} initial="hidden" animate="show" className="card space-y-0.5 overflow-hidden rounded-3xl p-1.5">
-                {talking.map((r) => (
-                  <motion.li key={r.chat.id} variants={fadeUp}>
-                    <ChatRow row={r} isMine={isMine} />
-                  </motion.li>
-                ))}
-              </motion.ul>
+              <motion.div variants={fadeUp} initial="hidden" animate="show">
+                <ShowMore
+                  items={talking}
+                  initial={firstChats}
+                  step={FIRST_CHATS}
+                  getKey={(r) => r.chat.id}
+                  listClassName="card space-y-0.5 overflow-hidden rounded-3xl p-1.5"
+                  moreLabel={(n) => t(`ดูแชทเพิ่ม (อีก ${n})`, `Show more chats (${n} more)`)}
+                  render={(r) => <ChatRow row={r} isMine={isMine} />}
+                />
+              </motion.div>
             </Section>
           )}
 
@@ -96,55 +110,19 @@ export default function ChatsPage() {
                 title={t('คำทักที่ส่งไป', 'Hellos you sent')}
                 note={t('รอเขาตอบรับอยู่', 'Waiting for them to accept')}
               >
-                <motion.ul variants={stagger(0.06, 0.1)} initial="hidden" animate="show" className="grid gap-3 sm:grid-cols-2">
-                  {waiting.map((r) => (
-                    <motion.li key={r.chat.id} variants={fadeUp}>
-                      <HelloCard row={r} isMine={isMine} />
-                    </motion.li>
-                  ))}
-                </motion.ul>
+                <ShowMore
+                  items={waiting}
+                  initial={FIRST_HELLOS}
+                  getKey={(r) => r.chat.id}
+                  listClassName="grid gap-3 sm:grid-cols-2"
+                  itemClassName="min-w-0"
+                  moreLabel={(n) => t(`ดูคำทักเพิ่ม (อีก ${n})`, `Show more hellos (${n} more)`)}
+                  render={(r) => <HelloCard row={r} isMine={isMine} />}
+                />
               </Section>
             </Reveal>
           )}
         </>
-      )}
-
-      {ready && suggestions.length > 0 && (
-        <Reveal>
-          <Section
-            tone="lavender"
-            icon={<Radio size={18} strokeWidth={2.4} />}
-            title={t('อาจอยากคุยด้วย', 'You might click with')}
-            action={
-              <Link to="/app/people" className={zoneAction}>
-                <span className="max-[400px]:sr-only">{t('ดูทั้งหมด', 'See all')}</span> <ChevronRight size={16} aria-hidden />
-              </Link>
-            }
-          >
-            <ul className="no-scrollbar zone-bleed flex snap-x gap-3 overflow-x-auto pb-2 lg:mx-0 lg:grid lg:grid-cols-4 lg:px-0">
-              {suggestions.map((m) => {
-                const u = users.get(m.userId)
-                if (!u) return null
-                return (
-                  <li key={m.userId} className="w-36 shrink-0 snap-start lg:w-auto">
-                    <MotionLink
-                      to={`/app/people/${u.id}`}
-                      data-cursor={t('ดูโปรไฟล์', 'View profile')}
-                      whileHover={{ y: -3 }}
-                      whileTap={{ scale: 0.95 }}
-                      transition={spring.bouncy}
-                      className="card flex h-full flex-col items-center gap-1.5 rounded-3xl p-4 text-center"
-                    >
-                      <Avatar color={u.color} size={56} online={u.isOnline} face="happy" />
-                      <span className="max-w-full truncate font-display font-semibold">{u.name}</span>
-                      <SignalMeter level={m.level} size="xs" short />
-                    </MotionLink>
-                  </li>
-                )
-              })}
-            </ul>
-          </Section>
-        </Reveal>
       )}
     </div>
   )

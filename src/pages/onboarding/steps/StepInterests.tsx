@@ -231,15 +231,15 @@ export function StepInterests({ draft, update }: StepProps) {
         variants={fadeUp}
         role="group"
         aria-label={t('กรองตามหมวด', 'Filter by category')}
-        className={`no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 py-1.5 transition-opacity lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0 ${searching ? 'opacity-50' : ''}`}
+        className={`flex flex-wrap gap-2 py-1.5 transition-opacity ${searching ? 'opacity-50' : ''}`}
       >
-        <Pill selected={cat === 'all'} onClick={() => setCat('all')} color="peach" className="snap-start">
+        <Pill selected={cat === 'all'} onClick={() => setCat('all')} color="peach">
           {t('ทั้งหมด', 'All')}
         </Pill>
         {CATEGORIES.map((c) => {
           const picked = pickedIn(c)
           return (
-            <Pill key={c} selected={cat === c} onClick={() => setCat(c)} color={CATEGORY_COLOR[c]} className="snap-start">
+            <Pill key={c} selected={cat === c} onClick={() => setCat(c)} color={CATEGORY_COLOR[c]}>
               {CATEGORY_LABEL[c]}
               {picked > 0 && (
                 <span className="ml-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-ink px-1 text-[11px] font-bold text-cream">

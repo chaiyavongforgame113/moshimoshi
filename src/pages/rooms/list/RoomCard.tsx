@@ -1,24 +1,23 @@
 import { motion } from 'motion/react'
-import { ArrowRight, CalendarClock, Sparkles } from 'lucide-react'
+import { CalendarClock, Sparkles } from 'lucide-react'
 import { Link } from 'react-router'
 import { TiltCard, TiltGlare } from '@/components/motion'
 import { RoomIcon, TagChip } from '@/components/ui'
-import { MochiCrowd, View3D } from '@/components/three'
 import { usePeople, useSessions } from '@/data/hooks'
 import { TAG_BY_ID } from '@/data/tags'
 import { MOCHI } from '@/lib/colors'
 import { t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
-import type { MochiColor, Room, User } from '@/lib/types'
-import { AvatarStack, HostBadge, JoinButton, PresenceLine } from '../bits'
-import { kindredMembers, nextSession, roomMembers, sessionWhen, sharedRoomTags } from '../roomData'
+import type { Room, User } from '@/lib/types'
+import { AvatarStack, HostBadge, JoinButton, LiveDot, PresenceLine } from '../bits'
+import { eventSession, kindredMembers, roomMembers, sessionWhen, sharedRoomTags } from '../roomData'
 
 interface CardProps {
   room: Room
   me: User
   joined: boolean
   onToggle: () => void
-  /** "เร็วๆ นี้" tab: surface the next session */
+  /** "อีเวนต์" tab: surface the session happening now, else the next one */
   showSession?: boolean
 }
 
@@ -55,7 +54,7 @@ export function RoomCard({ room, me, joined, onToggle, showSession }: CardProps)
   const sessions = useSessions()
   const shared = sharedRoomTags(room, me)
   const tags = [...shared, ...room.tags.filter((t) => !shared.includes(t))].slice(0, 3)
-  const session = showSession ? nextSession(room.id, sessions) : undefined
+  const session = showSession ? eventSession(room.id, sessions) : undefined
   return (
     <TiltCard className="h-full" glare={false}>
       <motion.article
@@ -99,9 +98,9 @@ export function RoomCard({ room, me, joined, onToggle, showSession }: CardProps)
 
         {session && (
           <p className="mt-3 flex items-center gap-2 rounded-2xl px-3 py-2 text-sm text-ink" style={{ background: p.light }}>
-            <CalendarClock size={16} strokeWidth={2.4} className="shrink-0" aria-hidden />
+            {session.live ? <LiveDot className="mx-0.5" /> : <CalendarClock size={16} strokeWidth={2.4} className="shrink-0" aria-hidden />}
             <span className="min-w-0 truncate">
-              <b className="font-display">{sessionWhen(session)}</b> · {session.title}
+              <b className="font-display">{session.live ? t('กำลังจัดอยู่ตอนนี้', 'Happening now') : sessionWhen(session)}</b> · {session.title}
             </span>
           </p>
         )}
@@ -124,68 +123,5 @@ export function RoomCard({ room, me, joined, onToggle, showSession }: CardProps)
         </div>
       </motion.article>
     </TiltCard>
-  )
-}
-
-/** The top pick: a "window" with the room's members as 3D mochi, plus why it fits. */
-export function FeaturedRoomCard({ room, me, joined, onToggle }: CardProps) {
-  const p = MOCHI[room.color]
-  const members = roomMembers(room.id, usePeople())
-  const shared = sharedRoomTags(room, me)
-  const fallback: MochiColor[] = ['peach', 'mint', 'lavender', 'butter', 'pink']
-  const colors = [...members.map((u) => u.color), ...fallback].slice(0, Math.max(3, Math.min(4, members.length)))
-  return (
-    <motion.article
-      whileHover={{ y: -4 }}
-      transition={spring.soft}
-      className="group relative isolate overflow-hidden rounded-[2rem] shadow-[var(--shadow-lift)] ring-2 ring-white has-[a:focus-visible]:outline-3 has-[a:focus-visible]:outline-offset-2 has-[a:focus-visible]:outline-lavender md:grid md:grid-cols-[1.15fr_1fr]"
-    >
-      {/* 3D window: deliberately unfilled so the shared canvas shows through. The view is
-          inset so its (rectangular) scissor stays inside the rounded corners; the whole card
-          is one link, so the crowd is decorative here (no tap/hover) */}
-      <div className="relative h-44 md:order-2 md:h-auto md:min-h-[19rem]">
-        <View3D className="absolute! inset-x-3 top-3 bottom-0 md:inset-3" label={t(`เพื่อนๆ ในห้อง${room.name}กำลังรออยู่`, `Friends in ${room.name} are waiting`)}>
-          <MochiCrowd colors={colors} interactive={false} />
-        </View3D>
-        <span className="absolute top-3 left-3 inline-flex items-center gap-1.5 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-ink shadow-[var(--shadow-soft)]">
-          <PresenceLine room={room} className="text-xs!" />
-        </span>
-      </div>
-
-      <div className="p-5 md:p-7" style={{ background: `linear-gradient(160deg, #fff 10%, ${p.light} 100%)` }}>
-        <p className="inline-flex items-center gap-1.5 rounded-full bg-butter/60 px-3 py-1 text-xs font-semibold text-ink">
-          <Sparkles size={14} strokeWidth={2.4} aria-hidden />
-          {t('เหมาะกับเราที่สุดตอนนี้', 'Your best fit right now')}
-        </p>
-        <div className="mt-3 flex items-center gap-3">
-          <RoomIcon room={room} size={60} />
-          <div className="min-w-0">
-            <h2 className="font-display text-2xl leading-tight font-bold">
-              <Link to={`/app/rooms/${room.id}`} className={stretched} data-cursor={t('แวะดูห้อง', 'Peek in')}>
-                {room.name}
-              </Link>
-            </h2>
-            <HostBadge userId={room.hostIds[0]} className="mt-1" />
-          </div>
-        </div>
-        <p className="mt-3 text-[15px] text-ink-soft">{room.vibe}</p>
-        {shared.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {shared.map((t) => TAG_BY_ID[t] && <TagChip key={t} tag={TAG_BY_ID[t]} selected size="sm" />)}
-          </div>
-        )}
-        <div className="mt-4 flex items-center gap-2.5">
-          <AvatarStack people={members} size={30} max={4} />
-          <KindredLine room={room} me={me} />
-        </div>
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <JoinButton room={room} joined={joined} onToggle={onToggle} />
-          <span aria-hidden className="inline-flex items-center gap-1 font-display text-sm font-semibold text-ink">
-            {t('แวะไปดูห้อง', 'Take a look')}
-            <ArrowRight size={16} strokeWidth={2.6} className="transition-transform group-hover:translate-x-1" />
-          </span>
-        </div>
-      </div>
-    </motion.article>
   )
 }

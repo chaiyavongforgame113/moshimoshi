@@ -1,5 +1,5 @@
 import { motion } from 'motion/react'
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useId, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { spring } from '@/lib/motion'
 
 export interface TabItem<K extends string> {
@@ -14,10 +14,11 @@ export const tabId = (base: string, key: string) => `${base}-tab-${key}`
 export const tabPanelId = (base: string, key: string) => `${base}-panel-${key}`
 
 /**
- * Segmented pill tabs with a sliding squishy indicator.
- * Phones: labels only (icons from sm up) so four tabs fit at 375px; if they
- * still overflow, the strip scrolls with soft edge fades and keeps the active
- * tab in view. Arrow keys / Home / End move between tabs.
+ * Segmented pill tabs with a sliding squishy indicator. Never scrolls sideways:
+ * the tabs share the row in equal columns (as wide as the longest label when the
+ * strip is `w-fit`, squeezing evenly when space runs out), and a label that no
+ * longer fits wraps onto a second short line. Icons show from sm up, so three
+ * tabs fit at 320px; there a badge sits on the tab's corner instead of beside the label. Arrow keys / Home / End move between tabs.
  */
 export function Tabs<K extends string>({
   items,
@@ -34,28 +35,7 @@ export function Tabs<K extends string>({
   className?: string
 }) {
   const id = useId()
-  const list = useRef<HTMLDivElement>(null)
   const refs = useRef(new Map<K, HTMLButtonElement>())
-  const [overflow, setOverflow] = useState(false)
-
-  useEffect(() => {
-    const l = list.current
-    if (!l) return
-    const ro = new ResizeObserver(() => setOverflow(l.scrollWidth > l.clientWidth + 1))
-    ro.observe(l)
-    return () => ro.disconnect()
-  }, [])
-
-  // keep the active tab inside the strip (horizontal only: never scroll the page)
-  useEffect(() => {
-    const l = list.current
-    const el = refs.current.get(value)
-    if (!l || !el || !overflow) return
-    const lr = l.getBoundingClientRect()
-    const er = el.getBoundingClientRect()
-    if (er.left < lr.left + 16) l.scrollLeft -= lr.left + 16 - er.left
-    else if (er.right > lr.right - 16) l.scrollLeft += er.right - (lr.right - 16)
-  }, [value, overflow])
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const i = items.findIndex((t) => t.key === value)
@@ -73,10 +53,9 @@ export function Tabs<K extends string>({
 
   return (
     <div
-      ref={list}
       role="tablist"
       onKeyDown={onKeyDown}
-      className={`no-scrollbar flex gap-1 overflow-x-auto rounded-full bg-white/70 p-1 shadow-[var(--shadow-soft)] ${overflow ? '[mask-image:linear-gradient(90deg,transparent,#000_14px,#000_calc(100%-14px),transparent)]' : ''} ${className}`}
+      className={`grid min-w-0 auto-cols-fr grid-flow-col gap-1 rounded-[1.6rem] bg-white/70 p-1 shadow-[var(--shadow-soft)] ${className}`}
     >
       {items.map((t) => {
         const active = t.key === value
@@ -94,28 +73,30 @@ export function Tabs<K extends string>({
             aria-selected={active}
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(t.key)}
-            className={`relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-full px-3 font-display text-[13px] font-semibold transition-colors sm:px-4 sm:text-sm ${active ? 'text-ink' : 'text-ink-soft hover:text-ink'}`}
+            className={`relative flex min-h-11 min-w-0 items-center justify-center rounded-[1.35rem] px-2 py-1 font-display text-[13px] leading-tight font-semibold transition-colors sm:px-4 sm:text-sm ${active ? 'text-ink' : 'text-ink-soft hover:text-ink'}`}
           >
             {active && (
               <motion.span
                 layoutId={`tab-${id}`}
-                className="absolute inset-0 rounded-full bg-butter shadow-[inset_0_-2px_0_rgb(59_38_34/0.12)]"
+                className="absolute inset-0 rounded-[1.35rem] bg-butter shadow-[inset_0_-2px_0_rgb(59_38_34/0.12)]"
                 transition={spring.bouncy}
               />
             )}
-            <span className="relative inline-flex items-center gap-1.5 whitespace-nowrap">
+            <span className="relative flex min-w-0 items-center justify-center gap-1.5">
               {t.icon && (
-                <span className="hidden sm:inline-flex" aria-hidden>
+                <span className="hidden shrink-0 sm:inline-flex" aria-hidden>
                   {t.icon}
                 </span>
               )}
-              {t.label}
-              {!!t.badge && (
-                <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-coral px-1.5 text-[11px] text-ink">
-                  {t.badge}
-                </span>
-              )}
+              {/* words wrap at spaces (Thai at word breaks); only a single word wider than the whole tab is split */}
+              <span className="line-clamp-2 min-w-0 text-center wrap-break-word">{t.label}</span>
             </span>
+            {/* below sm the count sits on the tab's corner, so it never takes width from the label */}
+            {!!t.badge && (
+              <span className="relative inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-coral px-1.5 text-[11px] leading-none text-ink max-sm:absolute max-sm:-top-1.5 max-sm:-right-1.5 max-sm:ring-2 max-sm:ring-white sm:ml-1.5">
+                {t.badge}
+              </span>
+            )}
           </button>
         )
       })}

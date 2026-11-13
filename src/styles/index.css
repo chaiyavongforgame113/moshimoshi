@@ -180,12 +180,6 @@
   .zone-body {
     padding: var(--zone-pad);
   }
-  /* sideways scrollers inside a zone run to its inner edge */
-  .zone-bleed {
-    margin-inline: calc(-1 * var(--zone-pad));
-    padding-inline: var(--zone-pad);
-    scroll-padding-inline: var(--zone-pad);
-  }
   @media (min-width: 640px) {
     .zone {
       --zone-pad: 1.25rem;
@@ -237,12 +231,6 @@
   }
   .safe-top {
     padding-top: max(0.75rem, env(safe-area-inset-top));
-  }
-  .no-scrollbar {
-    scrollbar-width: none;
-  }
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
   }
 }
 

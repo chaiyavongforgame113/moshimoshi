@@ -1,39 +1,38 @@
-import { AnimatePresence, motion } from 'motion/react'
-import { CalendarHeart, DoorOpen, Radio, Search, Sparkles, X } from 'lucide-react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { CalendarHeart, DoorOpen, LayoutGrid, Search, X } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { KineticText } from '@/components/motion'
-import { Avatar, Button, Chip, PageHeader, tabId, tabPanelId, Tabs, Zone, type TabItem } from '@/components/ui'
-import { useDataReady, usePeople, useRooms, useSessions } from '@/data/hooks'
-import { getLang, L, loc, t } from '@/lib/i18n'
+import { Avatar, Button, PageHeader, ShowMore, tabId, tabPanelId, Tabs, Zone, type TabItem } from '@/components/ui'
+import { useDataReady, useRooms, useSessions } from '@/data/hooks'
+import { L, loc, t } from '@/lib/i18n'
 import { fadeUp, spring, stagger } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import type { MochiColor, Room } from '@/lib/types'
 import { ListSkeleton } from '@/pages/people/Skeleton'
 import { LiveDot } from './bits'
 import { useRoomToggle } from './LeaveRoom'
-import { FeaturedRoomCard, RoomCard } from './list/RoomCard'
-import { nextSession, rankRooms, roomMatches, sortBySession } from './roomData'
+import { RoomCard } from './list/RoomCard'
+import { eventSession, liveFirst, roomMatches, sortByEvent } from './roomData'
 
-type Filter = 'forYou' | 'mine' | 'live' | 'soon'
+type Filter = 'all' | 'mine' | 'events'
 
 const FILTERS: TabItem<Filter>[] = [
-  loc<TabItem<Filter>>({ key: 'forYou', label: L('แนะนำ', 'For you'), icon: <Sparkles size={16} strokeWidth={2.4} /> }),
-  loc<TabItem<Filter>>({ key: 'mine', label: L('ห้องที่เข้าแล้ว', 'My rooms'), icon: <DoorOpen size={16} strokeWidth={2.4} /> }),
-  loc<TabItem<Filter>>({ key: 'live', label: L('กำลังคุย', 'Live now'), icon: <Radio size={16} strokeWidth={2.4} /> }),
-  loc<TabItem<Filter>>({ key: 'soon', label: L('เร็วๆ นี้', 'Coming up'), icon: <CalendarHeart size={16} strokeWidth={2.4} /> }),
+  loc<TabItem<Filter>>({ key: 'all', label: L('ทั้งหมด', 'All rooms'), icon: <LayoutGrid size={16} strokeWidth={2.4} /> }),
+  loc<TabItem<Filter>>({ key: 'mine', label: L('ห้องของเรา', 'My rooms'), icon: <DoorOpen size={16} strokeWidth={2.4} /> }),
+  loc<TabItem<Filter>>({ key: 'events', label: L('อีเวนต์', 'Events'), icon: <CalendarHeart size={16} strokeWidth={2.4} /> }),
 ]
 
 /** each tab's rooms sit in a zone of their own colour */
-const LIST_TONE: Record<Filter, MochiColor> = { forYou: 'butter', mine: 'sky', live: 'mint', soon: 'lavender' }
+const LIST_TONE: Record<Filter, MochiColor> = { all: 'butter', mine: 'sky', events: 'lavender' }
 
-function listTitle(filter: Filter, afterFeatured: boolean) {
+/** rooms a list shows before "ดูเพิ่ม" */
+const FIRST_ROOMS = 6
+
+function listTitle(filter: Filter) {
   if (filter === 'mine') return t('ห้องที่เข้าแล้ว', 'Rooms you joined')
-  if (filter === 'live') return t('กำลังคุยกันอยู่ตอนนี้', 'Chatting right now')
-  if (filter === 'soon') return t('มีรอบคุยเร็วๆ นี้', 'Sessions coming up')
-  return afterFeatured ? t('ห้องอื่นที่น่าจะชอบ', 'More rooms you might like') : t('ห้องที่น่าจะชอบ', 'Rooms you might like')
+  if (filter === 'events') return t('อีเวนต์ตอนนี้และเร็วๆ นี้', 'Events now and coming up')
+  return t('ห้องทั้งหมด', 'All rooms')
 }
-
-const SEARCH_IDEAS = { th: ['วาโล', 'อนิเมะ', 'คาเฟ่', 'ญี่ปุ่น', 'คอนเสิร์ต'], en: ['Valo', 'Anime', 'Café', 'Japanese', 'Concert'] }
 
 export default function RoomsPage() {
   const ready = useDataReady()
@@ -64,27 +63,23 @@ export default function RoomsPage() {
 function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
   const me = useMoshi((s) => s.me)
   const { toggle, sheet } = useRoomToggle()
-  const people = usePeople()
   const sessions = useSessions()
-  const [filter, setFilter] = useState<Filter>('forYou')
+  const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const q = useDeferredValue(query.trim())
 
-  const ranked = useMemo(() => rankRooms(allRooms, me, people), [allRooms, me, people])
-  // The top pick is chosen once (best room I'm not in yet) so joining it doesn't swap the card away.
-  const [featuredId] = useState(() => (ranked.find((r) => !me.rooms.includes(r.id)) ?? ranked[0])?.id)
-  const showFeatured = filter === 'forYou' && !q
-  const featured = ranked.find((r) => r.id === featuredId)
+  // rooms with other people chatting right now lead every list (their card carries the live badge)
+  const ordered = useMemo(() => liveFirst(allRooms, me.rooms), [allRooms, me.rooms])
 
-  const rooms = useMemo(() => {
+  const matching = useMemo(() => {
     let list: Room[]
-    if (filter === 'mine') list = ranked.filter((r) => me.rooms.includes(r.id))
-    else if (filter === 'live') list = allRooms.filter((r) => r.onlineCount > 0).sort((a, b) => b.onlineCount - a.onlineCount)
-    else if (filter === 'soon') list = allRooms.filter((r) => nextSession(r.id, sessions)).sort(sortBySession(sessions))
-    else list = ranked
-    list = list.filter((r) => roomMatches(r, q))
-    return showFeatured ? list.filter((r) => r.id !== featuredId) : list
-  }, [filter, ranked, allRooms, sessions, me.rooms, q, showFeatured, featuredId])
+    if (filter === 'mine') list = ordered.filter((r) => me.rooms.includes(r.id))
+    else if (filter === 'events') list = allRooms.filter((r) => eventSession(r.id, sessions)).sort(sortByEvent(sessions))
+    else list = ordered
+    return list.filter((r) => roomMatches(r, q))
+  }, [filter, ordered, allRooms, sessions, me.rooms, q])
+  // live counts only change the badges: joining or leaving never moves the card you just tapped
+  const rooms = useSteadyOrder(matching, `${filter}:${q}`)
 
   return (
     <>
@@ -134,53 +129,37 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
       </p>
 
       <div className="mt-5" role="tabpanel" id={tabPanelId('rooms', filter)} aria-labelledby={tabId('rooms', filter)}>
-        <AnimatePresence initial={false}>
-          {showFeatured && featured && (
-            <motion.div
-              key="featured"
-              initial={{ opacity: 0, y: 16, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.98, transition: { duration: 0.18 } }}
-              transition={spring.soft}
-              className="mb-4"
-            >
-              <FeaturedRoomCard room={featured} me={me} joined={me.rooms.includes(featured.id)} onToggle={() => toggle(featured)} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         {rooms.length > 0 ? (
-          <Zone
-            tone={LIST_TONE[filter]}
-            icon={FILTERS.find((f) => f.key === filter)?.icon}
-            title={q ? t(`ห้องที่ตรงกับ “${q}”`, `Rooms matching “${q}”`) : listTitle(filter, showFeatured && !!featured)}
-            note={t(`${rooms.length} ห้อง`, `${rooms.length} ${rooms.length === 1 ? 'room' : 'rooms'}`)}
-          >
-            <motion.ul variants={stagger(0.05, 0.1)} initial="hidden" animate="show" className="relative grid gap-3 md:grid-cols-2 md:gap-4">
-              <AnimatePresence mode="popLayout">
-                {rooms.map((r, i) => (
-                  <motion.li
-                    key={r.id}
-                    layout
-                    variants={fadeUp}
-                    exit={{ opacity: 0, scale: 0.92, transition: { duration: 0.18 } }}
-                    className={rooms.length % 2 === 1 && i === rooms.length - 1 ? 'md:col-span-2' : ''}
-                  >
-                    <RoomCard room={r} me={me} joined={me.rooms.includes(r.id)} onToggle={() => toggle(r)} showSession={filter === 'soon'} />
-                  </motion.li>
-                ))}
-              </AnimatePresence>
-            </motion.ul>
-          </Zone>
+          <motion.div key={filter} variants={fadeUp} initial="hidden" animate="show">
+            <Zone
+              tone={LIST_TONE[filter]}
+              icon={FILTERS.find((f) => f.key === filter)?.icon}
+              title={q ? t(`ห้องที่ตรงกับ “${q}”`, `Rooms matching “${q}”`) : listTitle(filter)}
+              note={t(`${rooms.length} ห้อง`, `${rooms.length} ${rooms.length === 1 ? 'room' : 'rooms'}`)}
+            >
+              {/* a new tab or search starts short again */}
+              <ShowMore
+                key={`${filter}:${q}`}
+                items={rooms}
+                initial={FIRST_ROOMS}
+                getKey={(r) => r.id}
+                listClassName="grid gap-3 md:grid-cols-2 md:gap-4 md:[&>li:last-child:nth-child(odd)]:col-span-2"
+                itemClassName="min-w-0"
+                moreLabel={(n) => t(`ดูห้องเพิ่ม (อีก ${n})`, `Show more rooms (${n} more)`)}
+                render={(r) => (
+                  <RoomCard room={r} me={me} joined={me.rooms.includes(r.id)} onToggle={() => toggle(r)} showSession={filter === 'events'} />
+                )}
+              />
+            </Zone>
+          </motion.div>
         ) : (
           <EmptyState
             filter={filter}
             query={q}
             onClear={() => setQuery('')}
-            onIdea={setQuery}
             onBrowse={() => {
               setQuery('')
-              setFilter('forYou')
+              setFilter('all')
             }}
           />
         )}
@@ -189,65 +168,72 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
   )
 }
 
-function EmptyState({
-  filter,
-  query,
-  onClear,
-  onIdea,
-  onBrowse,
-}: {
-  filter: Filter
-  query: string
-  onClear: () => void
-  onIdea: (q: string) => void
-  onBrowse: () => void
-}) {
+/**
+ * Keeps a list in the order it first showed while `key` (the tab and search) stays the same,
+ * so a card never jumps away from under the finger. Rooms new to the list join at the end;
+ * a room that drops out and comes back returns to its old spot. A new key starts fresh.
+ */
+function useSteadyOrder(list: Room[], key: string): Room[] {
+  const [snap, setSnap] = useState(() => ({ key, ids: list.map((r) => r.id) }))
+  let ids = snap.ids
+  if (snap.key !== key) ids = list.map((r) => r.id)
+  else {
+    const known = new Set(ids)
+    const added = list.filter((r) => !known.has(r.id)).map((r) => r.id)
+    if (added.length) ids = [...ids, ...added]
+  }
+  // remember what this render used (React re-renders straight away, before anything shows)
+  if (ids !== snap.ids) setSnap({ key, ids })
+
+  return useMemo(() => {
+    const byId = new Map(list.map((r) => [r.id, r]))
+    return ids.flatMap((id) => byId.get(id) ?? [])
+  }, [list, ids])
+}
+
+/** Nothing to show: says why, with exactly one next step. */
+function EmptyState({ filter, query, onClear, onBrowse }: { filter: Filter; query: string; onClear: () => void; onBrowse: () => void }) {
   const searching = !!query
+  const title = searching
+    ? t(`ยังไม่เจอห้องที่ตรงกับ “${query}”`, `No rooms match “${query}” yet`)
+    : filter === 'mine'
+      ? t('ยังไม่ได้เข้าห้องไหนเลย', "You haven't joined any rooms yet")
+      : filter === 'events'
+        ? t('ยังไม่มีอีเวนต์ตอนนี้', 'No events right now')
+        : t('ตอนนี้ยังเงียบๆ อยู่', "It's quiet right now")
+  const body = searching
+    ? filter === 'all'
+      ? t('ลองคำอื่นดูไหม หรือล้างคำค้นหาแล้วดูห้องทั้งหมด', 'Try another word, or clear the search to see every room')
+      : t('ลองคำอื่นดูไหม หรือล้างคำค้นหา', 'Try another word, or clear the search')
+    : filter === 'mine'
+      ? t('เข้าห้องที่ชอบไว้ แล้วห้องจะมารออยู่ตรงนี้ กลับมาคุยต่อได้ทุกเมื่อ', "Join rooms you like and they'll wait for you here, ready whenever you are")
+      : filter === 'events'
+        ? t('เดี๋ยวจะมีรอบคุยใหม่ๆ มาอีกนะ ระหว่างนี้แวะไปทักเพื่อนในห้องก่อนก็ได้', 'New sessions are on the way. Meanwhile, pop into a room and say hi')
+        : t('ยังไม่มีห้องให้ดูตอนนี้ แวะกลับมาใหม่นะ', 'No rooms to show yet. Check back soon')
+  const reduce = useReducedMotion()
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={reduce ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={spring.soft}
       className="card flex flex-col items-center px-6 py-10 text-center"
     >
-      <motion.span animate={{ rotate: [0, -6, 6, 0] }} transition={{ duration: 1.6, repeat: 1 }}>
+      <motion.span animate={reduce ? undefined : { rotate: [0, -6, 6, 0] }} transition={{ duration: 1.6, repeat: 1 }}>
         <Avatar color={searching ? 'sky' : 'cream'} size={84} face={searching ? 'wow' : 'sleepy'} />
       </motion.span>
-      <h2 className="mt-3 font-display text-xl font-semibold">
-        {searching
-          ? t(`ยังไม่เจอห้องที่ตรงกับ “${query}”`, `No rooms match “${query}” yet`)
-          : filter === 'mine'
-            ? t('ยังไม่ได้เข้าห้องไหนเลย', "You haven't joined any rooms yet")
-            : t('ตอนนี้ยังเงียบๆ อยู่', "It's quiet right now")}
-      </h2>
-      <p className="mt-1 max-w-sm text-ink-soft">
-        {searching
-          ? t('ลองคำอื่นดูไหม หรือเลือกจากเรื่องที่คนชอบคุยกันบ่อยๆ', 'Try another word, or pick from what people talk about most')
-          : filter === 'mine'
-            ? t('เข้าห้องที่ชอบไว้ แล้วห้องจะมารออยู่ตรงนี้ กลับมาคุยต่อได้ทุกเมื่อ', "Join rooms you like and they'll wait for you here, ready whenever you are")
-            : t('แวะดูห้องที่เหมาะกับเราก่อนก็ได้นะ', 'Have a look at rooms picked for you')}
-      </p>
-      {searching && (
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          {SEARCH_IDEAS[getLang()].filter((s) => s !== query).map((s) => (
-            <Chip key={s} onClick={() => onIdea(s)} icon={<Search size={14} strokeWidth={2.4} />}>
-              {s}
-            </Chip>
-          ))}
-        </div>
+      <h2 className="mt-3 font-display text-xl font-semibold [overflow-wrap:anywhere]">{title}</h2>
+      <p className="mt-1 max-w-sm text-ink-soft">{body}</p>
+      {searching ? (
+        <Button variant="soft" className="mt-5" icon={<X size={18} strokeWidth={2.6} />} onClick={onClear}>
+          {t('ล้างคำค้นหา', 'Clear search')}
+        </Button>
+      ) : (
+        filter !== 'all' && (
+          <Button className="mt-5" icon={<LayoutGrid size={18} strokeWidth={2.4} />} onClick={onBrowse}>
+            {t('ดูห้องทั้งหมด', 'See all rooms')}
+          </Button>
+        )
       )}
-      <div className="mt-5 flex flex-wrap justify-center gap-2">
-        {searching && (
-          <Button variant="soft" onClick={onClear}>
-            {t('ล้างคำค้นหา', 'Clear search')}
-          </Button>
-        )}
-        {(filter !== 'forYou' || searching) && (
-          <Button icon={<Sparkles size={18} strokeWidth={2.4} />} onClick={onBrowse}>
-            {t('ดูห้องที่เหมาะกับเรา', 'Rooms for you')}
-          </Button>
-        )}
-      </div>
     </motion.div>
   )
 }

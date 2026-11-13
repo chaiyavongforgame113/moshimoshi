@@ -1,9 +1,9 @@
-import { AnimatePresence, motion } from 'motion/react'
-import { CalendarClock, Check, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
-import { useMemo, useRef } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { CalendarClock, Check, Plus } from 'lucide-react'
+import { useMemo } from 'react'
 import { Link } from 'react-router'
 import { TiltCard, TiltGlare } from '@/components/motion'
-import { Avatar, ButtonLink, IconButton, RoomIcon } from '@/components/ui'
+import { Avatar, ButtonLink, RoomIcon, ShowMore } from '@/components/ui'
 import { useDataReady, usePerson, useRoom, useSessions } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
 import { t } from '@/lib/i18n'
@@ -14,37 +14,16 @@ import { AnimatedNumber, Block } from './Block'
 import { dayLabel, roomLabel } from './greeting'
 import { EmptyNote } from './Soft'
 
-/** "รอบคุยคืนนี้" — snap carousel: tonight first, then upcoming. */
+/** sessions that show before "ดูเพิ่ม" */
+const FIRST_SESSIONS = 2
+
+/** "รอบคุยคืนนี้" — tonight first, then upcoming: the first two, stacked (side by side from sm), then "ดูเพิ่ม". */
 export function SessionsCarousel() {
   const sessions = useSessions()
   const ready = useDataReady()
   const sorted = useMemo(() => [...sessions].sort((a, b) => a.dayOffset - b.dayOffset || a.time.localeCompare(b.time)), [sessions])
-  const track = useRef<HTMLUListElement>(null)
-  const scroll = (dir: 1 | -1) => {
-    const el = track.current
-    if (!el) return
-    const card = el.querySelector('li')
-    el.scrollBy({ left: dir * ((card?.clientWidth ?? 280) + 12), behavior: 'smooth' })
-  }
   return (
-    <Block
-      id="home-sessions"
-      tone="lavender"
-      title={t('รอบคุยคืนนี้', "Tonight's sessions")}
-      icon={<CalendarClock size={18} strokeWidth={2.4} />}
-      action={
-        sorted.length > 1 && (
-          <div className="hidden gap-2 md:flex">
-            <IconButton label={t('เลื่อนไปทางซ้าย', 'Scroll left')} onClick={() => scroll(-1)}>
-              <ChevronLeft size={20} />
-            </IconButton>
-            <IconButton label={t('เลื่อนไปทางขวา', 'Scroll right')} onClick={() => scroll(1)}>
-              <ChevronRight size={20} />
-            </IconButton>
-          </div>
-        )
-      }
-    >
+    <Block id="home-sessions" tone="lavender" title={t('รอบคุยคืนนี้', "Tonight's sessions")} icon={<CalendarClock size={18} strokeWidth={2.4} />}>
       {!ready ? (
         <SessionsSkeleton />
       ) : !sorted.length ? (
@@ -65,14 +44,15 @@ export function SessionsCarousel() {
           </ButtonLink>
         </EmptyNote>
       ) : (
-        <ul
-          ref={track}
-          className="no-scrollbar zone-bleed flex snap-x snap-mandatory gap-3 overflow-x-auto pt-1 pb-2"
-        >
-          {sorted.map((s, i) => (
-            <SessionCard key={s.id} session={s} index={i} />
-          ))}
-        </ul>
+        <ShowMore
+          items={sorted}
+          initial={FIRST_SESSIONS}
+          getKey={(s) => s.id}
+          listClassName="grid gap-3 pt-1 sm:grid-cols-2"
+          itemClassName="min-w-0"
+          moreLabel={(n) => t(`ดูรอบคุยเพิ่ม (อีก ${n})`, `Show more sessions (${n} more)`)}
+          render={(s, i) => <SessionCard session={s} index={i} />}
+        />
       )}
     </Block>
   )
@@ -87,14 +67,15 @@ function SessionCard({ session: s, index }: { session: Session; index: number })
   const host = s.hostId === me.id ? me : person
   const p = MOCHI[room?.color ?? 'cream']
   const count = s.going + (going ? 1 : 0)
+  const reduce = useReducedMotion()
 
   return (
-    <motion.li
-      initial={{ opacity: 0, x: 24 }}
-      whileInView={{ opacity: 1, x: 0 }}
+    <motion.div
+      initial={reduce ? false : { opacity: 0, y: 12 }}
+      whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
       transition={{ ...spring.soft, delay: Math.min(index, 4) * 0.05 }}
-      className="w-[78%] max-w-[18rem] shrink-0 snap-start sm:w-72"
+      className="h-full"
     >
       <TiltCard className="h-full" max={5} glare={false}>
         <article className="card relative flex h-full flex-col overflow-hidden p-4">
@@ -144,7 +125,7 @@ function SessionCard({ session: s, index }: { session: Session; index: number })
           </div>
         </article>
       </TiltCard>
-    </motion.li>
+    </motion.div>
   )
 }
 
@@ -197,9 +178,9 @@ function RsvpButton({ going, onToggle, title }: { going: boolean; onToggle: () =
 /** Two soft card outlines while sessions load. */
 function SessionsSkeleton() {
   return (
-    <div role="status" aria-label={t('กำลังโหลด', 'Loading')} className="flex gap-3 overflow-hidden pt-1 pb-5">
+    <div role="status" aria-label={t('กำลังโหลด', 'Loading')} className="grid gap-3 pt-1 sm:grid-cols-2">
       {[0, 1].map((i) => (
-        <div key={i} aria-hidden className="card h-52 w-[78%] max-w-[18rem] shrink-0 p-4 sm:w-72">
+        <div key={i} aria-hidden className="card h-52 min-w-0 p-4">
           <span className="block h-3 w-16 rounded-full bg-cream-3 motion-safe:animate-pulse" />
           <span className="mt-2 block h-7 w-24 rounded-full bg-cream-3 motion-safe:animate-pulse" />
           <span className="mt-4 block h-4 w-3/4 rounded-full bg-cream-3/70 motion-safe:animate-pulse" />
