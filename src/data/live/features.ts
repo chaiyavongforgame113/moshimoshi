@@ -14,4 +14,12 @@ export const features = {
   events: false,
   /** wave_answers (20261114000002_wave_quiz.sql): "จูนคลื่น" picks shared for matching. Off: they stay on this device */
   waveQuiz: false,
+  /** profiles.life_stages (20261117000001_lifestage_intro_watch.sql). Off: they aren't saved (the editor hides) */
+  lifeStages: false,
+  /** intro_requests + chat_pair_answers (same file): Mochi's warm intros and the question pair */
+  intros: false,
+  /** room_watch + watch_viewers (same file): watching clips together in rooms */
+  watch: false,
+  /** wave_card_preview() (same file): a shared wave card's link works signed out. Off: no card to share */
+  waveCard: false,
 }

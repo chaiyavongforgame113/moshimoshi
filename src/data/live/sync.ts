@@ -4,10 +4,22 @@ import { resetPersonalState, useMoshi } from '@/lib/store'
 import { db, supabase } from '@/lib/supabase'
 import { applyToCache } from './apply'
 import { clearAliases, clearPending, onChange, onReload, pendingWave, resolveId } from './bus'
-import { createCache, putChatMember, type Cache } from './cache'
+import { createCache, putChatMember, putRoomWatch, putWave, type Cache } from './cache'
 import { isNetworkError, isRefusal } from './errors'
 import { features } from './features'
-import { ensureProfiles, loadAll, loadChat, loadEventMessages, loadRecentlySeen, loadRoomHistory, loadSessions } from './load'
+import {
+  ensureProfiles,
+  loadAll,
+  loadChat,
+  loadEventMessages,
+  loadPairAnswers,
+  loadRecentlySeen,
+  loadRoomHistory,
+  loadRoomWatch,
+  loadRoomWatchAll,
+  loadSessions,
+  loadWave,
+} from './load'
 import {
   apply,
   chatsPatch,
@@ -16,11 +28,13 @@ import {
   myGoingPatch,
   myIntentsPatch,
   mySamesPatch,
+  pairAnswersPatch,
   peoplePatch,
   publishAll,
   questionsPatch,
   roomMessagesPatch,
   roomsPatch,
+  roomWatchPatch,
   sessionsPatch,
   wavePatch,
 } from './publish'
@@ -61,6 +75,13 @@ const REALTIME_REACTIONS: LiveTable[] = ['chat_message_sames', 'daily_answer_sam
  * Each open event chat streams on a channel of its own (watchEvent).
  */
 const REALTIME_EVENTS: LiveTable[] = ['sessions', 'session_rsvps']
+/**
+ * Mochi's intros and the question pair (20261117000001_lifestage_intro_watch.sql adds them to the
+ * publication). Their own channel, dropped when the first load finds no intro_requests yet. RLS
+ * decides who gets each change. A room's clip streams on a channel of its own while it's on screen
+ * (watchRoom); the rest of the rooms' clips are read again with the heartbeat.
+ */
+const REALTIME_SOCIAL: LiveTable[] = ['intro_requests', 'chat_pair_answers']
 /** "จูนคลื่น" ids are slugs (the database checks the same) */
 const WAVE_ID = /^[a-z0-9-]{1,40}$/
 const HEARTBEAT_MS = 2 * 60_000
@@ -69,6 +90,12 @@ const TICK_MS = 60_000
 const SUBSCRIBE_WAIT_MS = 4000
 /** a tab hidden longer than this reloads everything when it comes back */
 const STALE_MS = 3 * 60_000
+
+/** A room whose clip is on screen: its row streams in while anyone shows it. */
+interface RoomWatchSub {
+  users: number
+  channel: RealtimeChannel | null
+}
 
 /** An event chat on screen: its history is loaded and its lines stream in while anyone watches. */
 interface EventWatch {
@@ -86,6 +113,10 @@ interface LiveSession {
   reactions: RealtimeChannel | null
   /** sessions + RSVPs (dropped if the database has no events yet) */
   events: RealtimeChannel | null
+  /** intros + question pair answers (dropped if the database has no intros yet) */
+  social: RealtimeChannel | null
+  roomWatches: Map<string, RoomWatchSub>
+  pairLoads: Map<string, Promise<void>>
   eventWatches: Map<string, EventWatch>
   /** sessions fetched by id (outside the sign-in window): a full reload fetches them again */
   extraSessions: Set<string>
@@ -117,6 +148,9 @@ export function startSync(userId: string) {
     channels: [],
     reactions: null,
     events: null,
+    social: null,
+    roomWatches: new Map(),
+    pairLoads: new Map(),
     eventWatches: new Map(),
     extraSessions: new Set(),
     sessionLoads: new Map(),
@@ -178,6 +212,7 @@ async function firstLoad(s: LiveSession) {
     // no prompt_sames: the reactions migration hasn't run, so its tables can't stream either
     if (!features.promptSames) dropReactions(s)
     if (!features.events) dropEvents(s)
+    if (!features.intros) dropSocial(s)
     if (s.connected) return
     s.connected = true
     startTimers(s)
@@ -270,6 +305,19 @@ function needChat(s: LiveSession, chatId: string) {
     .catch((err) => console.warn('[moshi] chat load failed', err))
     .finally(() => s.chatLoads.delete(chatId))
   s.chatLoads.set(chatId, p)
+}
+
+/** Fetch an intro chat's question pair answers again (Mochi spoke: both may have answered). */
+function needPair(s: LiveSession, chatId: string) {
+  if (!features.intros || s.pairLoads.has(chatId)) return
+  const cache = s.cache
+  const p = loadPairAnswers(cache, [chatId])
+    .then(() => {
+      if (alive(s) && s.cache === cache) apply({}, pairAnswersPatch(cache))
+    })
+    .catch((err) => console.warn('[moshi] question pair load failed', err))
+    .finally(() => s.pairLoads.delete(chatId))
+  s.pairLoads.set(chatId, p)
 }
 
 function needProfiles(s: LiveSession, ids: string[]) {
@@ -469,10 +517,121 @@ function applyChange(s: LiveSession, ch: Change) {
     needChat: (id) => needChat(s, id),
     needProfiles: (ids) => needProfiles(s, ids),
     readIfOpen: (id, at) => readIfOpen(s, id, at),
+    needPair: (id) => needPair(s, id),
   })
 }
 
+// ------------------------------------------------------------------ people, intros, watching together
+
+/**
+ * Someone's profile and "จูนคลื่น" picks, for a comparison opened from their wave card (they may be
+ * outside the newest 1000 profiles). Resolves 'found', or 'missing' (no such person, a block either
+ * way, or demo mode / before the first load: then the catalog is all there is).
+ */
+export async function ensurePerson(userId: string): Promise<'found' | 'missing'> {
+  const s = current
+  if (!s || !isServerId(userId)) return 'missing'
+  const cache = s.cache
+  if (!cache.profiles.has(userId) && !cache.hidden.has(userId)) await ensureProfiles(cache, [userId])
+  if (!cache.profiles.has(userId)) return 'missing'
+  if (features.waveQuiz && !cache.wave.has(userId)) {
+    const picks = await loadWave([userId]).catch(() => undefined)
+    picks?.forEach((r) => putWave(cache, r, true))
+  }
+  if (alive(s) && s.cache === cache) apply({ ...peoplePatch(cache), ...wavePatch(cache) }, {})
+  return 'found'
+}
+
+/** Read one room's clip again and publish it (a channel (re)joined, or after a refused control). */
+export function reloadRoomWatch(roomId: string): Promise<void> {
+  const s = current
+  if (!s || !features.watch) return Promise.resolve()
+  const cache = s.cache
+  return loadRoomWatch(cache, roomId)
+    .then(() => {
+      if (alive(s) && s.cache === cache) apply(roomWatchPatch(cache), {})
+    })
+    .catch((err) => console.warn('[moshi] room clip load failed', err))
+}
+
+/**
+ * A room's clip is on screen: stream its row (play, pause, seek…) until the returned function is
+ * called (several screens may show one room; the last one out closes it). No-op in demo mode,
+ * before the first load, or while the database has no room_watch yet.
+ */
+export function watchRoom(roomId: string): () => void {
+  const s = current
+  if (!s || !roomId || !features.watch) return () => {}
+  let sub = s.roomWatches.get(roomId)
+  if (!sub) {
+    const fresh: RoomWatchSub = { users: 0, channel: null }
+    sub = fresh
+    s.roomWatches.set(roomId, fresh)
+    try {
+      const ch = db()
+        .channel(`watch:${roomId}:${Math.random().toString(36).slice(2, 10)}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'room_watch', filter: `room_id=eq.${roomId}` },
+          (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
+            if (!alive(s) || s.roomWatches.get(roomId) !== fresh) return
+            const row = payload.eventType === 'DELETE' ? payload.old : payload.new
+            applyChange(s, { table: 'room_watch', type: payload.eventType, row } as unknown as Change)
+          },
+        )
+      fresh.channel = ch
+      s.channels.push(ch)
+      // every (re)join catches up on what changed meanwhile
+      ch.subscribe((status) => {
+        if (status === 'SUBSCRIBED' && alive(s) && s.roomWatches.get(roomId) === fresh) void reloadRoomWatch(roomId)
+      })
+    } catch (err) {
+      console.warn('[moshi] room clip stream failed', err)
+    }
+    void reloadRoomWatch(roomId)
+  }
+  const held = sub
+  held.users++
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    if (--held.users > 0 || s.roomWatches.get(roomId) !== held) return
+    s.roomWatches.delete(roomId)
+    const ch = held.channel
+    if (ch) {
+      s.channels = s.channels.filter((x) => x !== ch)
+      void supabase?.removeChannel(ch)
+    }
+  }
+}
+
+/** Every room's clip again (the room cards' "กำลังดูด้วยกัน"; runs with the heartbeat). */
+function refreshRoomWatchAll(s: LiveSession) {
+  if (!features.watch) return
+  const cache = s.cache
+  loadRoomWatchAll()
+    .then((list) => {
+      if (!list || !alive(s) || s.cache !== cache) return
+      const seen = new Set(list.map((r) => r.room_id))
+      // rooms that went with their row (a deleted room) drop out
+      ;[...cache.roomWatch.keys()].filter((id) => !seen.has(id)).forEach((id) => cache.roomWatch.delete(id))
+      list.forEach((r) => putRoomWatch(cache, r))
+      apply(roomWatchPatch(cache), {})
+    })
+    .catch((err) => console.warn('[moshi] room clips refresh failed', err))
+}
+
 // ------------------------------------------------------------------ realtime
+
+/** Stop asking for intros and the question pair (the database has no intros yet). */
+function dropSocial(s: LiveSession) {
+  const ch = s.social
+  if (!ch) return
+  s.social = null
+  s.channels = s.channels.filter((c) => c !== ch)
+  void db().removeChannel(ch)
+}
 
 /** Stop asking for sessions and RSVPs (the database has no events yet, so they aren't published). */
 function dropEvents(s: LiveSession) {
@@ -538,6 +697,19 @@ function subscribe(s: LiveSession): Promise<void> {
     console.warn('[moshi] live events failed', err)
   }
 
+  // best effort too: without it, an intro (or the other person's answer) shows after a reload
+  const social = db().channel(`db-social:${topic}`)
+  listen(social, REALTIME_SOCIAL)
+  s.channels.push(social)
+  s.social = social
+  try {
+    social.subscribe((status, err) => {
+      if (status === 'CHANNEL_ERROR' && alive(s)) console.info('[moshi] live intros: channel error, rejoining', err)
+    })
+  } catch (err) {
+    console.warn('[moshi] live intros failed', err)
+  }
+
   return new Promise((resolve) => {
     let waiting = true
     const done = () => {
@@ -587,6 +759,7 @@ function startTimers(s: LiveSession) {
     if (document.visibilityState !== 'visible') return
     touchLastSeen(me).catch(() => {})
     seen()
+    refreshRoomWatchAll(s)
   }
   beat()
   let ticks = 0

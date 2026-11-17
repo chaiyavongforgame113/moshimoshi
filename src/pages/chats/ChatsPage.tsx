@@ -1,17 +1,19 @@
 import { motion } from 'motion/react'
-import { MessageCircleHeart, MessagesSquare, Radio, Send } from 'lucide-react'
+import { HeartHandshake, MessageCircleHeart, MessagesSquare, Radio, Send, Sparkles } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router'
 import { KineticText, Reveal } from '@/components/motion'
 import { Avatar, ButtonLink, PageHeader, Section, ShowMore, SignalMeter } from '@/components/ui'
-import { useChats, useDataReady, useMatches, usePeople } from '@/data/hooks'
+import { useChats, useDataReady, useIntroRequests, useMatches, usePeople } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
 import { known, t } from '@/lib/i18n'
+import { useNow } from '@/lib/hooks'
 import { fadeUp, spring } from '@/lib/motion'
 import type { Chat, MatchResult, User } from '@/lib/types'
 import { useIsMine } from '@/pages/people/lib'
 import { Rings } from '@/pages/people/profile/Rings'
 import { ListSkeleton } from '@/pages/people/Skeleton'
+import { FindMoreLink, IncomingIntroCard, OutgoingIntroRow } from './intro/IncomingIntro'
 import { chatPhase, lastMessage, previewText, setAside } from './lib'
 
 const MotionLink = motion.create(Link)
@@ -20,6 +22,8 @@ const MotionLink = motion.create(Link)
 const FIRST_HELLOS = 3
 /** chat rows shown before "ดูเพิ่ม" (more when an unread chat sits further down) */
 const FIRST_CHATS = 6
+/** an intro of mine that ran out stays in the list (with its kind note) this long */
+const EXPIRED_SHOWN_MS = 3 * 86_400_000
 
 interface Row {
   chat: Chat
@@ -36,6 +40,14 @@ export default function ChatsPage() {
   const matches = useMatches()
   const isMine = useIsMine()
   const users = useMemo(() => new Map(people.map((u) => [u.id, u])), [people])
+  const intros = useIntroRequests()
+  const now = useNow(60_000)
+  // "โมชิอยากแนะนำ…" for people I can see; mine still waiting, or run out lately (never accepted ones: those are chats now)
+  const introsIn = intros.incoming.filter((i) => users.has(i.withUserId))
+  const introsOut = intros.outgoing.filter(
+    (i) => users.has(i.withUserId) && (i.status === 'pending' || (i.status === 'expired' && now - Date.parse(i.expiresAt) < EXPIRED_SHOWN_MS)),
+  )
+  const introsRanOut = introsOut.some((i) => i.status === 'expired')
 
   const { incoming, waiting, talking } = useMemo(() => {
     const byUser = new Map(matches.map((m) => [m.userId, m]))
@@ -50,7 +62,7 @@ export default function ChatsPage() {
     }
   }, [chats, users, matches, isMine])
 
-  const total = incoming.length + waiting.length + talking.length
+  const total = incoming.length + waiting.length + talking.length + introsIn.length + introsOut.length
   // the chat list starts short, but never hides an unread chat behind "ดูเพิ่ม"
   const lastUnread = talking.reduce((at, r, i) => (r.chat.unread > 0 ? i : at), -1)
   const firstChats = Math.max(FIRST_CHATS, lastUnread + 1)
@@ -65,6 +77,25 @@ export default function ChatsPage() {
         <EmptyChats />
       ) : (
         <>
+          {introsIn.length > 0 && (
+            <Section
+              tone="butter"
+              icon={<Sparkles size={18} strokeWidth={2.4} />}
+              title={t('โมชิอยากแนะนำเพื่อนให้', 'Mochi has someone for you to meet')}
+              note={t('ยินดีรู้จักหรือไว้ก่อนก็ได้ ถ้าไว้ก่อน เขาจะไม่รู้นะ', "Say yes or maybe later. If it's later, they won't know")}
+            >
+              <ShowMore
+                items={introsIn}
+                initial={2}
+                getKey={(i) => i.id}
+                listClassName="grid gap-3 md:grid-cols-2"
+                itemClassName="min-w-0"
+                moreLabel={(n) => t(`ดูคำแนะนำเพิ่ม (อีก ${n})`, `Show more intros (${n} more)`)}
+                render={(i, n) => <IncomingIntroCard intro={i} primary={n === 0} />}
+              />
+            </Section>
+          )}
+
           {incoming.length > 0 && (
             <Section
               tone="mint"
@@ -119,6 +150,28 @@ export default function ChatsPage() {
                   moreLabel={(n) => t(`ดูคำทักเพิ่ม (อีก ${n})`, `Show more hellos (${n} more)`)}
                   render={(r) => <HelloCard row={r} isMine={isMine} />}
                 />
+              </Section>
+            </Reveal>
+          )}
+
+          {introsOut.length > 0 && (
+            <Reveal>
+              <Section
+                tone="lavender"
+                icon={<HeartHandshake size={18} strokeWidth={2.4} />}
+                title={t('ให้โมชิแนะนำให้', 'Intros Mochi is making')}
+                note={t('โมชิไปถามเขาก่อน ถ้ายินดีรู้จัก แชทจะเปิดเอง', "Mochi asks them first. If they'd like to meet, the chat opens by itself")}
+              >
+                <ShowMore
+                  items={introsOut}
+                  initial={FIRST_HELLOS}
+                  getKey={(i) => i.id}
+                  listClassName="grid gap-2.5 sm:grid-cols-2"
+                  itemClassName="min-w-0"
+                  moreLabel={(n) => t(`ดูเพิ่ม (อีก ${n})`, `Show more (${n} more)`)}
+                  render={(i) => <OutgoingIntroRow intro={i} />}
+                />
+                {introsRanOut && <FindMoreLink />}
               </Section>
             </Reveal>
           )}

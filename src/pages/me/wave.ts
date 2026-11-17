@@ -1,10 +1,10 @@
-import { ArrowLeftRight, Clock3, DoorOpen, Heart, MessagesSquare, Quote, Star, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, Clock3, DoorOpen, Heart, MessagesSquare, Quote, Signpost, Star, type LucideIcon } from 'lucide-react'
 import { useMemo } from 'react'
-import { useMyWaveAnswers, useRooms } from '@/data/hooks'
+import { useMyWaveAnswers, useRooms, useServerFeatures } from '@/data/hooks'
 import { promptLabel } from '@/data/tags'
 import { t } from '@/lib/i18n'
 import { useMoshi } from '@/lib/store'
-import type { MochiColor, PromptAnswer, Room, User, WaveAnswers } from '@/lib/types'
+import type { MochiColor, PromptAnswer, Room, ServerFeatures, User, WaveAnswers } from '@/lib/types'
 import { answeredCount, WAVE_ROUND_SIZE } from '@/lib/waveQuiz'
 import type { EditKind } from './EditSheets'
 
@@ -15,6 +15,7 @@ import type { EditKind } from './EditSheets'
  *
  * To add a piece, add one entry to WAVE_ITEMS (see 'tune', the "จูนคลื่น" quiz) and, if it
  * needs more than my profile, the rooms and my quiz picks, a field on WaveContext (filled in useWave).
+ * A piece the server can't keep yet (see 'life') says so in `offered`, and is left off the list then.
  * Text is read through functions, so it's always in the language of the moment.
  */
 
@@ -23,6 +24,8 @@ export interface WaveContext {
   rooms: Room[]
   /** my "จูนคลื่น" picks */
   quiz: WaveAnswers
+  /** what the server keeps (live mode before a migration: some pieces can't be saved yet) */
+  features: ServerFeatures
 }
 
 /** what the "next" button does: open one of my edit sheets (at a step), or go to a page */
@@ -43,6 +46,8 @@ export interface WaveItem {
   /** one line on why it helps */
   why: () => string
   open: (c: WaveContext) => WaveOpen
+  /** whether the piece is on offer at all (default: always) */
+  offered?: (c: WaveContext) => boolean
 }
 
 /** a story that counts: it has an answer and a question we can show */
@@ -78,6 +83,23 @@ export const WAVE_ITEMS: WaveItem[] = [
         '8 quick picks between two things, so Mochi can match you more closely',
       ),
     open: () => ({ to: '/app/tune' }),
+  },
+  {
+    // where life is at ("เพิ่งย้ายมาเมืองนี้", "ทำงานกะดึก"…): one is enough, and it's a strong signal
+    key: 'life',
+    Icon: Signpost,
+    tone: 'sky',
+    have: ({ me }) => me.lifeStages?.length ?? 0,
+    need: 1,
+    name: () => t('ช่วงชีวิต', 'Life stage'),
+    cta: () => t('บอกช่วงชีวิตตอนนี้', "Add where you're at in life"),
+    why: () =>
+      t(
+        'เช่น เพิ่งย้ายมาเมืองนี้ หรือทำงานกะดึก คนที่อยู่ช่วงเดียวกันจะเข้าใจกันง่าย',
+        'Like just moving to the city or working nights. People in the same season of life just get each other',
+      ),
+    open: () => ({ sheet: 'life' }),
+    offered: ({ features }) => features.lifeStages,
   },
   {
     key: 'loves',
@@ -153,7 +175,7 @@ export interface WaveProgress {
 }
 
 export function waveProgress(c: WaveContext, items: WaveItem[] = WAVE_ITEMS): WaveProgress {
-  const list = items.map((item) => {
+  const list = items.filter((item) => item.offered?.(c) ?? true).map((item) => {
     const have = item.have(c)
     const left = Math.max(0, item.need - have)
     return { item, have, left, done: left === 0 }
@@ -166,14 +188,15 @@ export function useWave(): WaveProgress & { context: WaveContext } {
   const me = useMoshi((s) => s.me)
   const rooms = useRooms()
   const quiz = useMyWaveAnswers()
+  const features = useServerFeatures()
   return useMemo(() => {
-    const context = { me, rooms, quiz }
+    const context = { me, rooms, quiz, features }
     return { ...waveProgress(context), context }
-  }, [me, rooms, quiz])
+  }, [me, rooms, quiz, features])
 }
 
 /** The edit sheets my profile opens from a link: /app/me?edit=tags&step=1 */
-export const EDIT_KINDS: readonly EditKind[] = ['basics', 'tags', 'stories', 'online', 'style']
+export const EDIT_KINDS: readonly EditKind[] = ['basics', 'tags', 'stories', 'life', 'online', 'style']
 
 /** A piece's button as a link, from anywhere: a page, or my profile with that sheet open at that question. */
 export function waveHref(open: WaveOpen): string {

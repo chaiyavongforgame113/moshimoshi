@@ -7,7 +7,7 @@ import { fadeUp } from '@/lib/motion'
 import { MAX_STYLES, type StepProps } from '../model'
 import { Pill } from '../parts/Pill'
 
-/** 8 · chat style, up to two (skippable). "อื่นๆ" lets them say it their own way. */
+/** 9 · chat style, up to two (skippable). "อื่นๆ" lets them say it their own way. */
 export function StepStyle({ draft, update }: StepProps) {
   const [scope, wiggle] = useAnimate<HTMLSpanElement>()
   const [notice, setNotice] = useState(0)

@@ -95,7 +95,9 @@ export function LiveToast() {
   return (
     <div
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[60] flex justify-center px-4 lg:top-auto lg:bottom-8"
+      // while a watch-together player is pinned to the top (html[data-sticky-player]), the toast moves
+      // to the bottom so nothing covers the video (YouTube's no-overlay rule)
+      className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[60] flex justify-center px-4 lg:top-auto lg:bottom-8 [html[data-sticky-player]_&]:top-auto [html[data-sticky-player]_&]:bottom-[calc(env(safe-area-inset-bottom)+7rem)]"
     >
       <AnimatePresence>
         {notice && (

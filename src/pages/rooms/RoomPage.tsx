@@ -1,10 +1,11 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { ChevronLeft, DoorClosed, MessageCircleQuestion, MessagesSquare, Search, Users } from 'lucide-react'
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { Avatar, ButtonLink, IconButton, RoomIcon, tabId, tabPanelId, Tabs, Zone, type TabItem } from '@/components/ui'
-import { useDataReady, useIntents, useRoom, useRoomHistoryReady } from '@/data/hooks'
+import { useDataReady, useIntents, useRoom, useRoomHistoryReady, useRoomWatch } from '@/data/hooks'
 import { flags } from '@/lib/flags'
+import { useIsWide } from '@/lib/hooks'
 import { t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
@@ -19,6 +20,9 @@ import { QuestionTab } from './room/QuestionTab'
 import { RoomEventPin } from './room/RoomEvents'
 import { RoomHero } from './room/RoomHero'
 import { useRoomChat } from './room/useRoomChat'
+import { StartWatchSheet } from './watch/StartWatchSheet'
+import { WatchEntry } from './watch/WatchBits'
+import { WatchPanel } from './watch/WatchPanel'
 
 type RoomTab = 'chat' | 'question' | 'looking' | 'people'
 // "คำถามวันนี้" is switched off (flags.dailyQuestion): without its key, ?tab=question lands on the chat
@@ -49,6 +53,22 @@ function RoomView({ room }: { room: Room }) {
   const reduce = useReducedMotion()
   const heroRef = useRef<HTMLElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
+  // watching a clip together: the player at the top (beside the chat from 1280px), no 3D in the hero
+  const watch = useRoomWatch(room.id)
+  const watching = watch.enabled && !!watch.watch
+  const wide = useIsWide()
+  const [picking, setPicking] = useState(false)
+  // the top bar's height: the player sticks right under it
+  const barRef = useRef<HTMLDivElement>(null)
+  const [barHeight, setBarHeight] = useState(0)
+  useEffect(() => {
+    const el = barRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setBarHeight(el.offsetHeight))
+    ro.observe(el)
+    setBarHeight(el.offsetHeight)
+    return () => ro.disconnect()
+  }, [])
 
   // after the composer that replaced the join panel has picked it up
   useEffect(() => {
@@ -88,61 +108,104 @@ function RoomView({ room }: { room: Room }) {
     if (!joined) setDraft({ text, to: u.name })
   }
 
+  const zone = (
+    <Zone
+      tone={room.color}
+      // beside the player the chat's column is narrow: a slimmer frame
+      className={watching && wide ? '[--zone-pad:0.75rem]' : 'mt-6'}
+      head={
+        <div ref={tabsRef} className="min-w-0 flex-1 scroll-mt-24 lg:scroll-mt-8">
+          <Tabs items={tabs} value={tab} onChange={(k) => goTab(k)} idBase="room" className="w-fit max-w-full" />
+        </div>
+      }
+    >
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={tab}
+          role="tabpanel"
+          id={tabPanelId('room', tab)}
+          aria-labelledby={tabId('room', tab)}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6, transition: { duration: 0.14 } }}
+          transition={spring.soft}
+        >
+          {tab === 'chat' && <RoomEventPin room={room} />}
+          {tab === 'chat' && (
+            <ChatTab
+              room={room}
+              messages={chat.messages}
+              mine={chat.mine}
+              typing={chat.typing}
+              seeded={chat.seeded}
+              onSend={chat.send}
+              onOpenQuestion={() => goTabAndShow('question')}
+              onJoin={() => toggle(room)}
+              draft={draft}
+              onDraft={setDraft}
+              jump={jump}
+              loading={!historyReady}
+              watch={watching ? watch.watch : null}
+              // the ideas list opens upward, over the sticky player on phones and tablets
+              ideas={!watching || wide}
+            />
+          )}
+          {flags.dailyQuestion && tab === 'question' && <QuestionTab room={room} />}
+          {tab === 'looking' && <IntentsTab room={room} />}
+          {tab === 'people' && <MembersTab room={room} onGreet={greetMember} />}
+        </motion.div>
+      </AnimatePresence>
+    </Zone>
+  )
+
   return (
-    <div className="pb-4">
-      <RoomTopBar room={room} heroRef={heroRef} />
-      <RoomHero ref={heroRef} room={room} joined={joined} onToggleJoin={() => toggle(room)} />
+    <div className="pb-4" style={{ '--room-bar': `${barHeight}px` } as CSSProperties}>
+      <RoomTopBar
+        room={room}
+        heroRef={heroRef}
+        barRef={barRef}
+        solid={watching}
+        action={watch.enabled && watch.canStart && !watch.watch ? <WatchEntry onClick={() => setPicking(true)} /> : undefined}
+      />
+      {/* phones and tablets: straight under the top bar, sticking there while the chat scrolls */}
+      {watching && !wide && <WatchPanel room={room} view={watch} onPick={() => setPicking(true)} />}
+      <div className={watching && !wide ? 'mt-5' : ''}>
+        <RoomHero ref={heroRef} room={room} joined={joined} onToggleJoin={() => toggle(room)} still={watching} />
+      </div>
       {sheet}
 
-      <Zone
-        tone={room.color}
-        className="mt-6"
-        head={
-          <div ref={tabsRef} className="min-w-0 flex-1 scroll-mt-24 lg:scroll-mt-8">
-            <Tabs items={tabs} value={tab} onChange={(k) => goTab(k)} idBase="room" className="w-fit max-w-full" />
+      {watching && wide ? (
+        // 1280px and up: the video (about 64%) beside the chat
+        <div className="mt-6 grid grid-cols-[minmax(480px,1.8fr)_minmax(0,1fr)] items-start gap-4">
+          <div className="sticky top-[calc(var(--room-bar)+0.5rem)]">
+            <WatchPanel room={room} view={watch} wide onPick={() => setPicking(true)} />
           </div>
-        }
-      >
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={tab}
-            role="tabpanel"
-            id={tabPanelId('room', tab)}
-            aria-labelledby={tabId('room', tab)}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6, transition: { duration: 0.14 } }}
-            transition={spring.soft}
-          >
-            {tab === 'chat' && <RoomEventPin room={room} />}
-            {tab === 'chat' && (
-              <ChatTab
-                room={room}
-                messages={chat.messages}
-                mine={chat.mine}
-                typing={chat.typing}
-                seeded={chat.seeded}
-                onSend={chat.send}
-                onOpenQuestion={() => goTabAndShow('question')}
-                onJoin={() => toggle(room)}
-                draft={draft}
-                onDraft={setDraft}
-                jump={jump}
-                loading={!historyReady}
-              />
-            )}
-            {flags.dailyQuestion && tab === 'question' && <QuestionTab room={room} />}
-            {tab === 'looking' && <IntentsTab room={room} />}
-            {tab === 'people' && <MembersTab room={room} onGreet={greetMember} />}
-          </motion.div>
-        </AnimatePresence>
-      </Zone>
+          {zone}
+        </div>
+      ) : (
+        zone
+      )}
+      <StartWatchSheet roomId={room.id} open={picking} onClose={() => setPicking(false)} current={watch.canControl ? watch.watch : null} />
     </div>
   )
 }
 
 /** Back button; the room name slides in once the hero scrolls away. */
-function RoomTopBar({ room, heroRef }: { room: Room; heroRef: RefObject<HTMLElement | null> }) {
+function RoomTopBar({
+  room,
+  heroRef,
+  barRef,
+  solid = false,
+  action,
+}: {
+  room: Room
+  heroRef: RefObject<HTMLElement | null>
+  barRef: RefObject<HTMLDivElement | null>
+  /** always a solid bar (a video sticks right under it) */
+  solid?: boolean
+  /** at the far end of the bar */
+  action?: ReactNode
+}) {
   const navigate = useNavigate()
   const [stuck, setStuck] = useState(false)
 
@@ -162,8 +225,9 @@ function RoomTopBar({ room, heroRef }: { room: Room; heroRef: RefObject<HTMLElem
 
   return (
     <div
+      ref={barRef}
       className={`safe-top sticky top-0 z-30 -mx-4 mb-3 flex items-center gap-3 px-4 pb-2 transition-[background-color,backdrop-filter] duration-300 lg:mx-0 lg:rounded-b-3xl lg:px-2 lg:pt-6 ${
-        stuck ? 'bg-cream/80 backdrop-blur-xl' : 'bg-transparent'
+        solid ? 'bg-cream' : stuck ? 'bg-cream/80 backdrop-blur-xl' : 'bg-transparent'
       }`}
     >
       <IconButton label={t('ย้อนกลับ', 'Back')} onClick={back}>
@@ -183,6 +247,7 @@ function RoomTopBar({ room, heroRef }: { room: Room; heroRef: RefObject<HTMLElem
           </motion.div>
         )}
       </AnimatePresence>
+      {action}
     </div>
   )
 }

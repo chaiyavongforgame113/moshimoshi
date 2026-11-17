@@ -1,9 +1,11 @@
 import { motion } from 'motion/react'
-import { Clock3, MapPin, MessagesSquare, Pencil } from 'lucide-react'
+import { Clock3, MapPin, MessagesSquare, Pencil, Signpost } from 'lucide-react'
 import { AllDayChip, Button, Chip } from '@/components/ui'
+import { useServerFeatures } from '@/data/hooks'
 import { ALL_SLOTS, chatStyleLabel, isAllDay, ONLINE_LABEL } from '@/data/tags'
 import { MochiStage, View3D } from '@/components/three'
 import { displayName, known, t } from '@/lib/i18n'
+import { lifeStageEmoji, lifeStageLabel } from '@/lib/lifeStages'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import { COLOR_NAME } from '@/pages/people/lib'
@@ -17,6 +19,9 @@ export function MeHero({ onEdit }: { onEdit: (kind: EditKind) => void }) {
   const me = useMoshi((s) => s.me)
   const slots = ALL_SLOTS.filter((s) => me.online.includes(s))
   const updateMe = useMoshi((s) => s.updateMe)
+  // the server keeps life stages only after its migration (always in demo): no editor before that
+  const lifeOn = useServerFeatures().lifeStages
+  const stages = me.lifeStages ?? []
   return (
     <section aria-label={t('โปรไฟล์ของเรา', 'My profile')} className="relative grid items-center gap-3 lg:grid-cols-[minmax(0,17rem)_1fr] lg:gap-8">
       <div className="relative flex flex-col items-center">
@@ -44,7 +49,36 @@ export function MeHero({ onEdit }: { onEdit: (kind: EditKind) => void }) {
           <p className="relative text-xs font-semibold text-ink-soft">{t('แนะนำตัว', 'About me')}</p>
           <p className="relative mt-0.5 text-[17px] text-ink">{me.bio || t('ยังไม่ได้เขียนแนะนำตัว แตะแก้ไขเพื่อเล่าเรื่องของเราสั้นๆ', 'No intro yet. Tap edit to share a little about yourself')}</p>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {lifeOn && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 inline-flex items-center gap-1.5 text-sm text-ink-soft">
+              <Signpost size={15} aria-hidden /> {t('ช่วงชีวิต', 'Life stage')}
+            </span>
+            {stages.map((v) => (
+              <Chip
+                key={v}
+                size="sm"
+                color="sky"
+                icon={
+                  <span aria-hidden className="shrink-0">
+                    {lifeStageEmoji(v)}
+                  </span>
+                }
+              >
+                {lifeStageLabel(v)}
+              </Chip>
+            ))}
+            <button
+              type="button"
+              onClick={() => onEdit('life')}
+              aria-label={stages.length ? t('แก้ช่วงชีวิต', 'Edit life stage') : undefined}
+              className={editLink}
+            >
+              {stages.length ? t('แก้', 'Edit') : t('บอกช่วงชีวิต', 'Add life stage')}
+            </button>
+          </div>
+        )}
+        <div className={`${lifeOn ? '' : 'mt-3 '}flex flex-wrap items-center gap-1.5`}>
           <span className="mr-1 inline-flex items-center gap-1.5 text-sm text-ink-soft">
             <MessagesSquare size={15} aria-hidden /> {t('สไตล์การคุย', 'Chat style')}
           </span>

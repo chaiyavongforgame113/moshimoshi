@@ -9,6 +9,7 @@ import { known, t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import type { MatchResult, User } from '@/lib/types'
 import { chatToOpen } from '@/pages/chats/lib'
+import { IntroButton } from './IntroButton'
 import { ageLabel, statusLabel, suggestedOpener } from './lib'
 
 /**
@@ -85,14 +86,18 @@ export function TodaysWave({ match, user, myAge }: { match: MatchResult; user: U
             </figure>
           )}
 
-          <Button
-            size="lg"
-            className="mt-4 w-full sm:w-auto"
-            icon={chat ? <MessageCircle size={20} aria-hidden /> : <MessageCircleHeart size={20} aria-hidden />}
-            onClick={() => navigate(chat ? `/app/chats/${chat.id}` : `/app/people/${user.id}?send=1`)}
-          >
-            {chat ? t('ไปที่แชท', 'Go to chat') : t('ทักแชท', 'Say hi')}
-          </Button>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Button
+              size="lg"
+              className="w-full sm:w-auto"
+              icon={chat ? <MessageCircle size={20} aria-hidden /> : <MessageCircleHeart size={20} aria-hidden />}
+              onClick={() => navigate(chat ? `/app/chats/${chat.id}` : `/app/people/${user.id}?send=1`)}
+            >
+              {chat ? t('ไปที่แชท', 'Go to chat') : t('ทักแชท', 'Say hi')}
+            </Button>
+            {/* the gentle way: Mochi asks them first */}
+            <IntroButton userId={user.id} />
+          </div>
         </div>
       </div>
     </Zone>

@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Clock3, DoorOpen, Gem, MessageCircleHeart, Repeat2, Search, Sparkles, Tags } from 'lucide-react'
+import { ArrowLeftRight, Clock3, DoorOpen, Gem, MessageCircleHeart, Repeat2, Search, Signpost, Sparkles, Tags } from 'lucide-react'
 import type { MatchReasonKind } from '@/lib/types'
 
 const MAP: Record<MatchReasonKind, { Icon: typeof Gem; bg: string }> = {
@@ -11,6 +11,7 @@ const MAP: Record<MatchReasonKind, { Icon: typeof Gem; bg: string }> = {
   room: { Icon: DoorOpen, bg: 'bg-cream-3' },
   style: { Icon: Sparkles, bg: 'bg-butter/40' },
   quiz: { Icon: ArrowLeftRight, bg: 'bg-lavender/30' },
+  lifeStage: { Icon: Signpost, bg: 'bg-sky/50' },
 }
 
 export function ReasonIcon({ kind, size = 16 }: { kind: MatchReasonKind; size?: number }) {

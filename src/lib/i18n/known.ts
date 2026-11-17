@@ -109,6 +109,27 @@ const LABELS: Record<string, string> = {
   แชทส่วนตัว: 'Private chat',
   // intents.when_label for "ตอนนี้เลย" (saved as when 'tonight'; pages/post NOW_LABEL)
   ตอนนี้เลย: 'Right now',
+  // Mochi's lines in an intro chat (private.mochi_line, 20261117000001_lifestage_intro_watch.sql)
+  'โมชิแนะนำให้ทั้งคู่รู้จักกันแล้วนะ ลองดูกันว่าคลื่นตรงกันตรงไหนบ้าง': 'Mochi just introduced you two! See where your waves line up',
+  'โมชิมีคำถามมาให้ทั้งคู่ตอบ คำตอบจะเปิดให้เห็นพร้อมกันตอนที่ตอบครบทั้งสองคนนะ': "Mochi has a question for you both. Your answers open together once you've both replied",
+  'โมชิขอตัวก่อนนะ คุยกันให้สนุก': 'Mochi will step back now. Have fun chatting!',
+}
+
+/** profiles.life_stages values (LIFE_STAGES in lib/lifeStages: keep the two in step) */
+const LIFE_STAGES: Record<string, string> = {
+  เพิ่งย้ายมาเมืองนี้: 'Just moved to the city',
+  เริ่มงานแรก: 'First jobber',
+  นักศึกษา: 'Student',
+  ทำงานกะดึก: 'Working night shifts',
+  ทำงานที่บ้าน: 'Working from home',
+  ฟรีแลนซ์: 'Freelancer',
+  เพิ่งเปลี่ยนงาน: 'Just changed jobs',
+  กำลังหางาน: 'Looking for work',
+  อยู่คนเดียวครั้งแรก: 'Living alone for the first time',
+  พ่อแม่มือใหม่: 'New parent',
+  เพิ่งกลับจากต่างประเทศ: 'Just back from abroad',
+  พักเบรกชีวิต: 'Taking a gap year',
+  เพิ่งเกษียณ: 'Newly retired',
 }
 
 /** reports.reason values (SafetyMenu REPORT_REASONS, the chat photo REASONS in ImageSheets, room line reports) */
@@ -130,7 +151,7 @@ const REPORT_REASONS: Record<string, string> = {
 /** Own keys only: these maps are looked up with text people typed ('__proto__' must not find Object.prototype). */
 const own = (map: Record<string, string>, key: string): string | undefined => (Object.hasOwn(map, key) ? map[key] : undefined)
 
-const EXACT: Record<string, string> = { ...PROVINCES, ...CHAT_STYLES, ...SESSIONS, ...QUESTIONS, ...LABELS, ...REPORT_REASONS }
+const EXACT: Record<string, string> = { ...PROVINCES, ...CHAT_STYLES, ...SESSIONS, ...QUESTIONS, ...LABELS, ...REPORT_REASONS, ...LIFE_STAGES }
 
 const MONTHS: Record<string, string> = {
   'ม.ค.': 'Jan',

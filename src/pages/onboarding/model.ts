@@ -3,6 +3,7 @@
 import type { MochiAccessory, MochiExpression } from '@/components/three'
 import { OWN_PROMPT_ID, PROMPTS, tagLabelTh, tagOf } from '@/data/tags'
 import { known, t } from '@/lib/i18n'
+import { normalizeLifeStages } from '@/lib/lifeStages'
 import type { Intent, IntentTemplate, MochiColor, OnlineSlot, PromptAnswer, Room, TagCategory, User } from '@/lib/types'
 
 export interface Draft {
@@ -26,6 +27,8 @@ export interface Draft {
   intentTag: string | null
   online: OnlineSlot[]
   chatStyle: string[]
+  /** "ช่วงชีวิต", up to LIFE_STAGE_MAX (stored Thai values, or what they typed) */
+  lifeStages: string[]
   rooms: string[]
   /** once the visitor toggles a room we stop auto-picking for them */
   roomsTouched: boolean
@@ -65,7 +68,7 @@ export function initialDraft(me: User, onboarded: boolean): Draft {
   if (!onboarded) {
     // someone who skipped earlier (birth year saved, before the age limit was removed) keeps the name they typed
     const name = me.birthYear ? me.name.slice(0, NAME_MAX) : ''
-    return { ...base, name, tags: [], loves: [], prompts: [blankPrompt], online: [], chatStyle: [], rooms: [], roomsTouched: false }
+    return { ...base, name, tags: [], loves: [], prompts: [blankPrompt], online: [], chatStyle: [], lifeStages: [], rooms: [], roomsTouched: false }
   }
   return {
     ...base,
@@ -75,6 +78,7 @@ export function initialDraft(me: User, onboarded: boolean): Draft {
     prompts: me.prompts.length ? me.prompts.slice(0, 2).map((p) => ({ ...p })) : [blankPrompt],
     online: [...me.online],
     chatStyle: me.chatStyle.slice(0, MAX_STYLES),
+    lifeStages: normalizeLifeStages(me.lifeStages),
     rooms: [...me.rooms],
     roomsTouched: me.rooms.length > 0,
   }
@@ -91,34 +95,39 @@ export interface StepCheck {
 // ------------------------------------------------------------------ the screens, one question each
 /**
  * The order people meet them in. "topic" is the second half of "intent": it only shows when they
- * picked "คุยเรื่อง…" and counts as the same question in the progress ("6/10").
+ * picked "คุยเรื่อง…" and counts as the same question in the progress ("6/11"). "life" (ช่วงชีวิต)
+ * only shows once the server keeps life stages (useServerFeatures().lifeStages; always in demo).
  */
-export const SCREEN_ORDER = ['name', 'rules', 'mochi', 'likes', 'loves', 'intent', 'topic', 'online', 'style', 'story', 'rooms', 'done'] as const
+export const SCREEN_ORDER = ['name', 'rules', 'mochi', 'likes', 'loves', 'intent', 'topic', 'life', 'online', 'style', 'story', 'rooms', 'done'] as const
 export type ScreenKey = (typeof SCREEN_ORDER)[number]
 
-/** 1-based question number for "3/10" (topic shares intent's; done is past the end). */
-export const QUESTION_OF: Record<ScreenKey, number> = {
-  name: 1,
-  rules: 2,
-  mochi: 3,
-  likes: 4,
-  loves: 5,
-  intent: 6,
-  topic: 6,
-  online: 7,
-  style: 8,
-  story: 9,
-  rooms: 10,
-  done: 10,
+/** What the server can keep, which decides the screens on offer. */
+export interface FlowOptions {
+  lifeStages: boolean
 }
-export const QUESTIONS = 10
+
+const offered = (k: ScreenKey, o: FlowOptions) => k !== 'life' || o.lifeStages
 
 /** The screens this draft walks through. */
-export const screenFlow = (d: Draft): ScreenKey[] => SCREEN_ORDER.filter((k) => k !== 'topic' || (d.intent === 'talk' && d.tags.length > 0))
+export const screenFlow = (d: Draft, o: FlowOptions): ScreenKey[] =>
+  SCREEN_ORDER.filter((k) => offered(k, o) && (k !== 'topic' || (d.intent === 'talk' && d.tags.length > 0)))
+
+/** The questions the progress counts ("topic" shares intent's number, done is past the end). */
+const counted = (o: FlowOptions) => SCREEN_ORDER.filter((k) => k !== 'topic' && k !== 'done' && offered(k, o))
+
+/** How many questions the progress shows ("…/11"). */
+export const questionCount = (o: FlowOptions) => counted(o).length
+
+/** 1-based question number for "3/11" (topic shares intent's; done is the last). */
+export function questionOf(screen: ScreenKey, o: FlowOptions): number {
+  const list = counted(o)
+  if (screen === 'done') return list.length
+  return Math.max(1, list.indexOf(screen === 'topic' ? 'intent' : screen) + 1)
+}
 
 /** Skippable ("ข้ามไปก่อน"): skipping moves on without asking for an answer. Someone editing a finished profile may skip "intent" too. */
 export const isOptional = (screen: ScreenKey, editing: boolean) =>
-  screen === 'loves' || screen === 'online' || screen === 'style' || screen === 'story' || (editing && screen === 'intent')
+  screen === 'loves' || screen === 'life' || screen === 'online' || screen === 'style' || screen === 'story' || (editing && screen === 'intent')
 
 /** Whether Next may move on. Optional screens ask for an answer here; leaving them empty is what Skip is for. */
 export function validate(screen: ScreenKey, d: Draft): StepCheck {
@@ -133,6 +142,8 @@ export function validate(screen: ScreenKey, d: Draft): StepCheck {
       return d.loves.length ? { ok: true } : { ok: false, need: t('ติดดาวสักอย่างนะ', 'Star one first') }
     case 'intent':
       return d.intent ? { ok: true } : { ok: false, need: t('เลือก 1 อย่างนะ', 'Pick one first') }
+    case 'life':
+      return d.lifeStages.length ? { ok: true } : { ok: false, need: t('เลือกสัก 1 อย่างนะ', 'Pick one first') }
     case 'online':
       return d.online.length ? { ok: true } : { ok: false, need: t('เลือกสักช่วงนะ', 'Pick a time first') }
     case 'style':

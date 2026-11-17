@@ -1,10 +1,24 @@
 import { useCatalog, type CatalogData } from '@/data/catalog'
 import { BLANK_ME, useMoshi, type MoshiPolicy, type MoshiState } from '@/lib/store'
-import type { ChatMessage, Room, WaveAnswers, WaveChoice } from '@/lib/types'
-import { isTmp, pendingConsent, pendingWave, resolveId, unblocking, unsending } from './bus'
+import type { ChatMessage, PairAnswer, Room, RoomWatch, WaveAnswers, WaveChoice } from '@/lib/types'
+import { isTmp, pendingConsent, pendingPair, pendingWave, resolveId, unblocking, unsending } from './bus'
 import { features } from './features'
 import { isActiveIntent, others, pairKey, sortByTime, type Cache } from './cache'
-import { ONLINE_WINDOW_MIN, toChat, toEventMessage, toIntent, toMessage, toQuestion, toRoom, toSession, toUser, type LiveChat } from './map'
+import {
+  ONLINE_WINDOW_MIN,
+  toChat,
+  toEventMessage,
+  toIntent,
+  toIntro,
+  toMessage,
+  toPairAnswer,
+  toQuestion,
+  toRoom,
+  toRoomWatch,
+  toSession,
+  toUser,
+  type LiveChat,
+} from './map'
 import { isSample, isServerId, SAMPLE_INTENTS, SAMPLE_PEOPLE } from './sample'
 import { minutesAgo } from './time'
 
@@ -178,7 +192,55 @@ export function myWavePatch(c: Cache): MinePatch {
 }
 
 export function featuresPatch(): CatPatch {
-  return { features: { events: features.events, waveQuiz: features.waveQuiz } }
+  return {
+    features: {
+      events: features.events,
+      waveQuiz: features.waveQuiz,
+      lifeStages: features.lifeStages,
+      intros: features.intros,
+      watch: features.watch,
+      waveCard: features.waveCard,
+    },
+  }
+}
+
+/** "ให้โมชิแนะนำให้": mine and the ones about me, newest first (nobody in a block relation with me). Sample people's stay local. */
+export function introsPatch(c: Cache): MinePatch {
+  const now = Date.now()
+  const local = useMoshi.getState().intros.filter((i) => !isServerId(i.id))
+  const list = [...c.intros.values()]
+    .filter((r) => !c.hidden.has(r.from_user === c.me ? r.to_user : r.from_user))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+    .map((r) => toIntro(r, c.me, now))
+  return { intros: [...local, ...list] }
+}
+
+/** Question pair answers per chat (mine; theirs once both answered), plus my answer still on its way. */
+export function pairAnswersPatch(c: Cache): MinePatch {
+  const out: Record<string, PairAnswer[]> = {}
+  // sample chats keep theirs
+  for (const [chatId, list] of Object.entries(useMoshi.getState().pairAnswers)) if (!isServerId(chatId)) out[chatId] = list
+  c.pairAnswers.forEach((rows, chatId) => {
+    out[chatId] = sortByTime(rows.values()).map(toPairAnswer)
+  })
+  pendingPair.forEach((p, chatId) => {
+    const list = out[chatId] ?? []
+    if (list.some((a) => a.userId === c.me && a.questionId === p.questionId)) return
+    out[chatId] = [...list, { chatId, userId: c.me, questionId: p.questionId, text: p.text, at: p.at }]
+  })
+  return { pairAnswers: out }
+}
+
+/** Rooms' clips that are on, and which rooms a host opened up ("ให้ทุกคนคุมได้"). */
+export function roomWatchPatch(c: Cache): CatPatch {
+  const roomWatch: Record<string, RoomWatch> = {}
+  const roomWatchOpen: Record<string, boolean> = {}
+  c.roomWatch.forEach((row, roomId) => {
+    const w = toRoomWatch(row)
+    if (w) roomWatch[roomId] = w
+    if (row.anyone_can_control) roomWatchOpen[roomId] = true
+  })
+  return { roomWatch, roomWatchOpen }
 }
 
 export function myGoingPatch(c: Cache): MinePatch {
@@ -335,6 +397,7 @@ export function publishAll(c: Cache) {
       ...rooms.cat,
       ...events.cat,
       ...wavePatch(c),
+      ...roomWatchPatch(c),
       ...featuresPatch(),
       ready: true,
       error: null,
@@ -342,6 +405,8 @@ export function publishAll(c: Cache) {
     {
       ...events.mine,
       ...myWavePatch(c),
+      ...introsPatch(c),
+      ...pairAnswersPatch(c),
       ...myIntentsPatch(c),
       ...myJoinsPatch(c),
       ...myGoingPatch(c),

@@ -1,18 +1,20 @@
 import { motion, useReducedMotion } from 'motion/react'
-import { ArrowRight, Check, DoorOpen, MessageCircleHeart, Radio, Sparkles, Users } from 'lucide-react'
+import { ArrowRight, Check, DoorOpen, HeartHandshake, MessageCircleHeart, Radio, Sparkles, Users } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Avatar, Button, ButtonLink } from '@/components/ui'
-import { useDailyPick, useMyId, usePerson, useRooms, useSaidHi } from '@/data/hooks'
+import { useDailyPick, useIntroRequests, useIntroWith, useMyId, usePerson, useRooms, useSaidHi } from '@/data/hooks'
 import { t } from '@/lib/i18n'
 import { fadeUp, spring, stagger } from '@/lib/motion'
 import { useProgress, useSaidInRoom } from '@/lib/progress'
 import { useMoshi } from '@/lib/store'
 import { useWave, waveHref } from '@/pages/me/wave'
+import { introOffered } from '@/pages/people/intro'
+import { IntroButton } from '@/pages/people/IntroButton'
 import { roomLabel } from './greeting'
 
 export interface FirstStepsState {
   myId: string
-  /** (a) I said hi to someone myself: a hello I sent, or a line I wrote in a chat */
+  /** (a) I said hi to someone myself: a hello I sent, a line I wrote in a chat, or an intro I asked Mochi for */
   chatted: boolean
   /** (b) I said something in a room */
   roomSaid: boolean
@@ -35,7 +37,10 @@ export interface FirstStepsState {
  */
 export function useFirstSteps(): FirstStepsState {
   const myId = useMyId()
-  const chatted = useSaidHi()
+  const saidHi = useSaidHi()
+  // asking Mochi to introduce us is reaching out too (the gentle way)
+  const askedIntro = useMoshi((s) => s.intros.some((i) => i.direction === 'outgoing'))
+  const chatted = saidHi || askedIntro
   const roomSaid = useSaidInRoom(myId)
   const wave = useWave()
   const progress = useProgress(myId)
@@ -79,17 +84,34 @@ export function FirstSteps({ steps, onHide }: { steps: FirstStepsState; onHide: 
   const thin = !!interests && !interests.done
   const piece = thin ? interests : tune
 
-  const chatRow: StepRow = {
-    key: 'chat',
-    done: steps.chatted,
-    title: t('ทักแชทคนคลื่นเดียวกัน 1 คน', 'Say hi to one person on your wavelength'),
-    sub: pickUser
-      ? t(`เริ่มจาก ${pickUser.name} คลื่นของวันนี้ก็ได้นะ`, `Start with ${pickUser.name}, today's wavelength pick`)
-      : t('ไปดูกันว่าใครคลื่นตรงกับเราบ้าง', "See who's on your wavelength"),
-    action: pickUser
-      ? { to: `/app/people/${pickUser.id}?send=1`, label: t('ทักแชท', 'Say hi'), icon: <MessageCircleHeart size={18} /> }
-      : { to: '/app/people', label: t('ไปดูคนคลื่นเดียวกัน', 'See people'), icon: <Users size={18} /> },
-  }
+  const introIn = useIntroRequests().incoming[0]
+  const introFrom = usePerson(introIn?.withUserId)
+  const pickIntro = useIntroWith(pickUser?.id)
+  const gentle = !!pickUser && introOffered(pickIntro.state)
+  const chatRow: StepRow = introFrom
+    ? {
+        // someone asked Mochi about me: answering that is the easiest first hello there is
+        key: 'chat',
+        done: steps.chatted,
+        title: t('ทักแชทคนคลื่นเดียวกัน 1 คน', 'Say hi to one person on your wavelength'),
+        sub: t(`โมชิอยากแนะนำ ${introFrom.name} ให้รู้จัก ไปดูกันเลย`, `Mochi would love for you to meet ${introFrom.name}. Take a look`),
+        action: { to: '/app/chats', label: t('ไปดูคำแนะนำ', 'See the intro'), icon: <HeartHandshake size={18} /> },
+      }
+    : {
+        key: 'chat',
+        done: steps.chatted,
+        title: t('ทักแชทคนคลื่นเดียวกัน 1 คน', 'Say hi to one person on your wavelength'),
+        sub: pickUser
+          ? gentle
+            ? t(`เริ่มจาก ${pickUser.name} คลื่นของวันนี้ก็ได้นะ หรือให้โมชิแนะนำให้ก็ได้`, `Start with ${pickUser.name}, today's wavelength pick. Or let Mochi introduce you`)
+            : t(`เริ่มจาก ${pickUser.name} คลื่นของวันนี้ก็ได้นะ`, `Start with ${pickUser.name}, today's wavelength pick`)
+          : t('ไปดูกันว่าใครคลื่นตรงกับเราบ้าง', "See who's on your wavelength"),
+        action: pickUser
+          ? { to: `/app/people/${pickUser.id}?send=1`, label: t('ทักแชท', 'Say hi'), icon: <MessageCircleHeart size={18} /> }
+          : { to: '/app/people', label: t('ไปดูคนคลื่นเดียวกัน', 'See people'), icon: <Users size={18} /> },
+        // the gentle option next to it: Mochi asks them first
+        extra: gentle && pickUser ? <IntroButton userId={pickUser.id} size="sm" /> : undefined,
+      }
   const roomRow: StepRow = {
     key: 'room',
     done: steps.roomSaid,
@@ -148,15 +170,18 @@ export function FirstSteps({ steps, onHide }: { steps: FirstStepsState; onHide: 
               sub={r.done ? t('เรียบร้อย เก่งมากเลย', 'Done. Nice one!') : r.sub}
               action={
                 !r.done && (
-                  <ButtonLink
-                    to={r.action.to}
-                    variant={lead === r.key ? 'primary' : 'secondary'}
-                    size={lead === r.key ? 'md' : 'sm'}
-                    icon={r.action.icon}
-                    className={lead === r.key ? 'w-full sm:w-auto' : ''}
-                  >
-                    {r.action.label}
-                  </ButtonLink>
+                  <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                    <ButtonLink
+                      to={r.action.to}
+                      variant={lead === r.key ? 'primary' : 'secondary'}
+                      size={lead === r.key ? 'md' : 'sm'}
+                      icon={r.action.icon}
+                      className={lead === r.key ? 'w-full sm:w-auto' : ''}
+                    >
+                      {r.action.label}
+                    </ButtonLink>
+                    {r.extra}
+                  </div>
                 )
               }
             />
@@ -216,6 +241,8 @@ interface StepRow {
   title: string
   sub: string
   action: { to: string; label: string; icon: ReactNode }
+  /** a quieter second option next to the action */
+  extra?: ReactNode
 }
 
 function Row({

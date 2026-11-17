@@ -1,12 +1,13 @@
 // "สัญญาณถูกคอ" — a 5-level signal scale (like phone bars) instead of a % score.
 // The wave comes from the profile, so nobody has to post to be found:
-// interests + loves (rare ones weigh more) · "จูนคลื่น" quiz · stories (prompt answers)
-// · online times · chat styles that fit · shared rooms and events.
+// interests + loves (rare ones weigh more) · "จูนคลื่น" quiz · life stages in common ("ช่วงชีวิต")
+// · stories (prompt answers) · online times · chat styles that fit · shared rooms and events.
 // Posts ("ชวนเล่น") only add a small bonus when both people are after the same thing.
 
 import { useCatalog } from '@/data/catalog'
 import { CATEGORY_LABEL, hasChatStyle, isAllDay, ONLINE_LABEL, OWN_PROMPT_ID, CHAT_STYLES, promptLabel, sameTag, TAG_BY_ID, tagKey, tagOf, tagsInText } from '@/data/tags'
 import { L, loc, t, texts } from './i18n'
+import { lifeStageLabel, sharedLifeStages } from './lifeStages'
 import { roomInLang, sessionInLang } from './i18n/catalog'
 import { agreement, QUIZ_MIN_COMMON } from './waveQuiz'
 import type {
@@ -14,6 +15,7 @@ import type {
   IntentRole,
   MatchBreakdown,
   MatchReason,
+  MatchReasonKind,
   MatchResult,
   PromptAnswer,
   SharedTag,
@@ -80,9 +82,15 @@ const ROLE_COMPAT: Record<IntentRole, Record<IntentRole, number>> = {
   host: { peer: 0.9, seek: 0.8, offer: 0.2, swap: 0.1, host: 0.1 },
 }
 
-/** The profile parts of the wave (they add up to 1). Tune here. */
+/** The profile parts of the wave (everything but the `intent` bonus), life stage included. */
 type Part = Exclude<keyof MatchBreakdown, 'intent'>
-const WEIGHTS: Record<Part, number> = { interests: 0.35, quiz: 0.25, story: 0.1, rhythm: 0.1, style: 0.1, context: 0.1 }
+/** Every part of the wave and the bonus (same as MatchBreakdown; kept as a name for older imports). */
+export type WaveBreakdown = MatchBreakdown
+/**
+ * Relative weights: the parts in play are renormalized (a part one side has no data for is left
+ * out), so with life stages left out the others weigh exactly as before. Tune here.
+ */
+const WEIGHTS: Record<Part, number> = { interests: 0.35, quiz: 0.25, lifeStage: 0.2, story: 0.1, rhythm: 0.1, style: 0.1, context: 0.1 }
 /** The most a pair of matching posts can add on top of the profile score. */
 const INTENT_BONUS = 0.08
 /**
@@ -92,6 +100,8 @@ const INTENT_BONUS = 0.08
  * left empty is left out of the score rather than counted as zero. The quiz doesn't shift the
  * spread: with everyone's picks in, each demo person sees 2–7 (mean 4.4, 4.0 without); the demo
  * me sees 8 before playing and 6–11 after one round of random picks (median 8, 200 runs).
+ * Life stages (the demo gives ten people one or two): each demo person sees 3–7 (mean 4.6, 4.4
+ * without), level 5 stays as rare; the demo me sees 8–9 with one stage picked, 10 with three.
  */
 const LEVEL_CUTS: [number, SignalLevel][] = [
   [0.6, 5],
@@ -103,6 +113,8 @@ const LEVEL_CUTS: [number, SignalLevel][] = [
 const NO_TOPIC_CAP = 0.25
 /** A quiz reason only when the picks clearly line up (6 of 8 and up), not at chance (half). */
 const QUIZ_REASON_SHARE = 0.7
+/** The reason kind (and ReasonIcon) a shared life stage gets. */
+const LIFE_STAGE_REASON: MatchReasonKind = 'lifeStage'
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
 
@@ -170,6 +182,40 @@ function quizScore(a?: WaveAnswers, b?: WaveAnswers): QuizFit | null {
   if (common < QUIZ_MIN_COMMON) return null
   // two-way picks agree half the time by chance, so chance lands near an ordinary part (~0.33) and all-same at 1
   return { score: clamp01((same / common - 0.25) / 0.75), same, asked: common }
+}
+
+// ---------- "ช่วงชีวิต" life stages ----------
+interface LifeFit {
+  score: number
+  /** in my order, as stored (show them with lifeStageLabel) */
+  shared: string[]
+}
+
+/** A stage this share of the community has ("นักศึกษา" in a student crowd) says a little less. */
+const COMMON_STAGE_SHARE = 0.3
+
+/** Same stage, ignoring case and spaces: the same rule as sharedLifeStages in lib/lifeStages. */
+const stageKey = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('th')
+
+/** How much of the community is at each stage (by stageKey), 0..1. */
+function stageShares(population: User[]): Map<string, number> {
+  const count = new Map<string, number>()
+  for (const u of population) for (const k of new Set((u.lifeStages ?? []).map(stageKey))) count.set(k, (count.get(k) ?? 0) + 1)
+  const n = population.length || 1
+  return new Map([...count].map(([k, c]) => [k, c / n]))
+}
+
+/**
+ * Life stages in common ("เพิ่งย้ายมาเมืองนี้" meets "เพิ่งย้ายมาเมืองนี้"): one already says a lot,
+ * each one more a little more. null when either side has none, or none is shared: being at different
+ * points in life says nothing either way, so the part is left out rather than counted as zero (filling
+ * it in never costs anyone a match).
+ */
+function lifeStageScore(a: User, b: User, shares: Map<string, number>): LifeFit | null {
+  const shared = sharedLifeStages(a.lifeStages, b.lifeStages)
+  if (!shared.length) return null
+  const best = Math.max(...shared.map((s) => ((shares.get(stageKey(s)) ?? 0) > COMMON_STAGE_SHARE ? 0.75 : 1)))
+  return { score: clamp01(0.8 * best + 0.15 * (shared.length - 1)), shared }
 }
 
 // ---------- chat styles ----------
@@ -343,12 +389,17 @@ const ICEBREAKER_BY_CATEGORY: Record<string, (label: string, name: string) => st
   other: (l) => t(`ชอบ "${l}" เหมือนกันเลย เริ่มชอบตั้งแต่ตอนไหนเหรอ?`, `You're into "${l}" too! How did you get into it?`),
 }
 
-function buildIcebreakers(them: User, shared: SharedTag[], hit: IntentHit | null, matched?: PromptAnswer): string[] {
+function buildIcebreakers(them: User, shared: SharedTag[], hit: IntentHit | null, matched?: PromptAnswer, stages: string[] = []): string[] {
   const out: string[] = []
   if (postsMatch(hit)) out.push(t(`ทักเรื่อง "${hit.theirs.text}" ได้เลย เขากำลังหาอยู่พอดี`, `Say hi about "${hit.theirs.text}". They're looking for exactly that`))
   for (const s of shared.slice(0, 2)) {
     const f = ICEBREAKER_BY_CATEGORY[s.tag.category]
     if (f) out.push(f(s.tag.label, them.name))
+  }
+  // the same stage of life: ready to send as it is
+  if (stages.length) {
+    const stage = lifeStageLabel(stages[0])
+    out.push(t(`"${stage}" เหมือนกันเลย ช่วงนี้เป็นยังไงบ้าง?`, `"${stage}" here too! How's it going for you?`))
   }
   const answer = matched ?? them.prompts[0]
   if (answer) out.push(t(`${them.name}บอกว่า "${answer.text}" ลองถามต่อดูสิ`, `${them.name} said "${answer.text}". Ask them more!`))
@@ -367,16 +418,18 @@ export interface MatchExtras {
 /** Everything that depends on the whole community, worked out once per list. */
 interface Ctx {
   stats: TagStats
+  /** how common each life stage is */
+  stages: Map<string, number>
   intents: Intent[]
   extras: MatchExtras
 }
 
 function makeCtx(me: User, population: User[], intents: Intent[], extras: MatchExtras): Ctx {
   const pop = population.some((u) => u.id === me.id) ? population : [...population, me]
-  return { stats: tagStats(pop), intents, extras }
+  return { stats: tagStats(pop), stages: stageShares(pop), intents, extras }
 }
 
-function scorePair(me: User, them: User, myIntents: Intent[], { stats, intents, extras }: Ctx): MatchResult {
+function scorePair(me: User, them: User, myIntents: Intent[], { stats, stages, intents, extras }: Ctx): MatchResult {
   const catalog = useCatalog.getState()
   const roomOf = (id: string) => {
     const room = catalog.rooms.find((r) => r.id === id)
@@ -386,6 +439,7 @@ function scorePair(me: User, them: User, myIntents: Intent[], { stats, intents, 
 
   const interests = interestScore(me, them, stats)
   const quiz = quizScore(extras.quiz?.[me.id], extras.quiz?.[them.id])
+  const life = lifeStageScore(me, them, stages)
   const story = storyScore(me, them)
   const rhythm = jaccard(me.online, them.online)
   const style = styleScore(me, them)
@@ -400,9 +454,10 @@ function scorePair(me: User, them: User, myIntents: Intent[], { stats, intents, 
   // only two matching posts earn the bonus; "their post is about something I like" is a reason, not a bonus
   const intentFit = postsMatch(hit) ? hit.score : 0
 
-  const breakdown: MatchBreakdown = {
+  const breakdown: WaveBreakdown = {
     interests: interests.score,
     quiz: quiz?.score ?? 0,
+    lifeStage: life?.score ?? 0,
     story: story.score,
     rhythm,
     style: style.score,
@@ -414,6 +469,7 @@ function scorePair(me: User, them: User, myIntents: Intent[], { stats, intents, 
   // so skipping the optional onboarding screens never pushes anyone under MIN_LEVEL
   const missing: Part[] = []
   if (!quiz) missing.push('quiz')
+  if (!life) missing.push('lifeStage')
   if (!me.prompts.length || !them.prompts.length) missing.push('story')
   if (!me.online.length || !them.online.length) missing.push('rhythm')
   if (!me.chatStyle.length || !them.chatStyle.length) missing.push('style')
@@ -421,7 +477,7 @@ function scorePair(me: User, them: User, myIntents: Intent[], { stats, intents, 
   const wSum = parts.reduce((s, k) => s + WEIGHTS[k], 0)
   const profile = parts.reduce((s, k) => s + WEIGHTS[k] * breakdown[k], 0) / wSum
   // same hours and a fitting chat style alone aren't "ถูกคอ": without one thing to talk about, stay below it
-  const topic = interests.shared.length > 0 || story.score > 0.25 || (quiz?.score ?? 0) >= 0.5 || intentFit > 0
+  const topic = interests.shared.length > 0 || !!life || story.score > 0.25 || (quiz?.score ?? 0) >= 0.5 || intentFit > 0
   const score = Math.min(clamp01(profile + INTENT_BONUS * intentFit), topic ? 1 : NO_TOPIC_CAP)
 
   const level: SignalLevel = LEVEL_CUTS.find(([cut]) => score >= cut)?.[1] ?? 1
@@ -446,6 +502,14 @@ function scorePair(me: User, them: User, myIntents: Intent[], { stats, intents, 
       kind: 'tag',
       text: t(`ชอบ ${common.slice(0, 3).map((s) => s.tag.label).join(', ')} เหมือนกัน`, `You both picked ${common.slice(0, 3).map((s) => s.tag.label).join(', ')}`),
       weight: 0.5 + 0.1 * common.length,
+    })
+  }
+  if (life) {
+    const names = life.shared.slice(0, 2).map(lifeStageLabel)
+    reasons.push({
+      kind: LIFE_STAGE_REASON,
+      text: t(`ช่วงชีวิตเดียวกัน: ${listTh(names)}`, `Same stage of life: ${listEn(names)}`),
+      weight: 0.75 + 0.1 * (life.shared.length - 1),
     })
   }
   if (quiz && quiz.same / quiz.asked >= QUIZ_REASON_SHARE) {
@@ -526,7 +590,7 @@ function scorePair(me: User, them: User, myIntents: Intent[], { stats, intents, 
     sharedTags: interests.shared,
     breakdown,
     missing,
-    icebreakers: buildIcebreakers(them, interests.shared, hit, story.answer),
+    icebreakers: buildIcebreakers(them, interests.shared, hit, story.answer, life?.shared),
   }
 }
 
@@ -567,9 +631,10 @@ export function onWavelength(matches: MatchResult[], min: SignalLevel = MIN_LEVE
 }
 
 /** Every part of the wave, in the order they're shown (`intent` last: it's the bonus). */
-export const BREAKDOWN_LABEL: Readonly<Record<keyof MatchBreakdown, string>> = texts({
+export const BREAKDOWN_LABEL: Readonly<Record<keyof WaveBreakdown, string>> = texts({
   interests: L('เรื่องที่ชอบ', 'Interests'),
   quiz: L('จูนคลื่น', 'This or that'),
+  lifeStage: L('ช่วงชีวิต', 'Life stage'),
   story: L('เรื่องเล่า', 'Stories'),
   rhythm: L('ช่วงเวลาออนไลน์', 'Online times'),
   style: L('สไตล์การคุย', 'Chat style'),

@@ -8,11 +8,12 @@ import { TAG_BY_ID } from '@/data/tags'
 import { MOCHI } from '@/lib/colors'
 import { t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
-import type { Room, Session, User } from '@/lib/types'
+import type { Room, RoomWatch, Session, User } from '@/lib/types'
 import { OpenDot } from '@/pages/events/EventCard'
 import { useEventHref } from '@/pages/events/lib'
 import { AvatarStack, HostBadge, JoinButton, PresenceLine } from '../bits'
 import { kindredMembers, roomMembers, sharedRoomTags } from '../roomData'
+import { WatchingBadge } from '../watch/WatchBits'
 
 interface CardProps {
   room: Room
@@ -21,6 +22,8 @@ interface CardProps {
   onToggle: () => void
   /** an event open in this room right now: a small live badge that goes straight in */
   openEvent?: Session
+  /** a clip the room is watching together right now: "กำลังดูด้วยกัน" */
+  watching?: RoomWatch
 }
 
 // Whole card is clickable through the stretched title link; buttons sit above it (z-10).
@@ -50,7 +53,7 @@ function KindredLine({ room, me }: { room: Room; me: User }) {
   )
 }
 
-export function RoomCard({ room, me, joined, onToggle, openEvent }: CardProps) {
+export function RoomCard({ room, me, joined, onToggle, openEvent, watching }: CardProps) {
   const p = MOCHI[room.color]
   const members = roomMembers(room.id, usePeople())
   const shared = sharedRoomTags(room, me)
@@ -111,6 +114,8 @@ export function RoomCard({ room, me, joined, onToggle, openEvent }: CardProps) {
             <ChevronRight size={16} strokeWidth={2.4} aria-hidden className="shrink-0" />
           </Link>
         )}
+
+        {watching && <WatchingBadge watch={watching} />}
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <PresenceLine room={room} />

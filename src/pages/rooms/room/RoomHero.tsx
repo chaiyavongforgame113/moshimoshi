@@ -2,7 +2,7 @@ import { motion, useReducedMotion } from 'motion/react'
 import { Clock3, Users } from 'lucide-react'
 import { forwardRef } from 'react'
 import { KineticText } from '@/components/motion'
-import { RoomIcon } from '@/components/ui'
+import { Avatar, RoomIcon } from '@/components/ui'
 import { MochiStage, View3D } from '@/components/three'
 import { usePeople } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
@@ -15,8 +15,9 @@ import { AvatarStack, JoinButton, PresenceLine } from '../bits'
 // 3D mochi lives in that hole (the WebGL canvas sits behind the DOM).
 const PORTHOLE = 'radial-gradient(circle var(--r) at calc(100% - var(--c)) var(--c), transparent calc(var(--r) - 1px), #000 var(--r))'
 
-export const RoomHero = forwardRef<HTMLElement, { room: Room; joined: boolean; onToggleJoin: () => void }>(function RoomHero(
-  { room, joined, onToggleJoin },
+/** `still`: a clip is on in the room, so no 3D scene beside the video (battery): a drawn mochi instead. */
+export const RoomHero = forwardRef<HTMLElement, { room: Room; joined: boolean; onToggleJoin: () => void; still?: boolean }>(function RoomHero(
+  { room, joined, onToggleJoin, still = false },
   ref,
 ) {
   const reduce = useReducedMotion()
@@ -54,9 +55,15 @@ export const RoomHero = forwardRef<HTMLElement, { room: Room; joined: boolean; o
 
       {/* porthole with the room's mochi */}
       <div className="absolute top-[calc(var(--c)_-_var(--r))] right-[calc(var(--c)_-_var(--r))] size-[calc(var(--r)*2)]">
-        <View3D className="size-full rounded-full" label={t(`น้องโมชิประจำห้อง${room.name}โบกมือทักทาย`, `${room.name}'s little Mochi waving hello`)}>
-          <MochiStage color={room.color} expression="happy" zoom={1.2} />
-        </View3D>
+        {still ? (
+          <span className="flex size-full items-center justify-center rounded-full" style={{ background: `radial-gradient(circle at 40% 35%, #fff, ${p.light} 70%)` }}>
+            <Avatar color={room.color} size={84} face="happy" label={t(`น้องโมชิประจำห้อง${room.name}`, `${room.name}'s little Mochi`)} />
+          </span>
+        ) : (
+          <View3D className="size-full rounded-full" label={t(`น้องโมชิประจำห้อง${room.name}โบกมือทักทาย`, `${room.name}'s little Mochi waving hello`)}>
+            <MochiStage color={room.color} expression="happy" zoom={1.2} />
+          </View3D>
+        )}
         <span aria-hidden className="pointer-events-none absolute -inset-1 rounded-full border-[3px] border-dashed border-white/90 shadow-[inset_0_6px_14px_rgb(59_38_34/0.12)]" />
         <motion.span
           aria-hidden

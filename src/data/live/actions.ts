@@ -1,13 +1,15 @@
 import { useCatalog } from '@/data/catalog'
 import { chatImagePath, forgetLocalImage, rememberLocalImage } from '@/data/chatImages'
+import { PAIR_ANSWER_MAX, pickPairQuestion } from '@/data/pairQuestions'
 import { checkEventDraft, EVENT_LIMITS, eventDraftIssueText } from '@/lib/events'
 import { L, t, tx } from '@/lib/i18n'
+import { normalizeLifeStages } from '@/lib/lifeStages'
 import type { MoshiActions, MoshiGet, MoshiSet } from '@/lib/store'
-import type { ChatMessage, Intent, User } from '@/lib/types'
-import { aliasId, emitChange, isTmp, pendingConsent, pendingWave, requestReload, resolveId, tmpId, unblocking, unsending } from './bus'
+import type { ChatMessage, Intent, PairAnswer, User } from '@/lib/types'
+import { aliasId, emitChange, isTmp, pendingConsent, pendingPair, pendingWave, requestReload, resolveId, tmpId, unblocking, unsending } from './bus'
 import { features } from './features'
 import { intentColumns, profilePatch, type LiveChat } from './map'
-import type { ChatRow, IntentRow } from './rows'
+import type { ChatRow, IntentRow, IntroRequestRow } from './rows'
 import { isSample, isServerId } from './sample'
 import { isRefusal, isSuspendedNow, knownError, mayBeSuspended, writeError } from './errors'
 import { messageTime } from './time'
@@ -25,6 +27,7 @@ const REPORT_SENT = L('ส่งรายงานแล้ว ทีมงา�
 const REPORT_FAILED = L('ส่งรายงานไม่สำเร็จ ลองใหม่อีกครั้งนะ', "Couldn't send the report. Try again")
 const EVENTS_SOON = L('อีเวนต์กำลังจะมาเร็วๆ นี้นะ รอแป๊บเดียว', 'Events are coming soon. Hang on a little')
 const EVENT_HOSTS_ONLY = L('ตั้งหรือยกเลิกอีเวนต์ได้เฉพาะพี่โมชิประจำห้องกับทีมงานนะ', "Only the room's hosts and the team can set up or cancel events")
+const SOON = L('ฟีเจอร์นี้กำลังจะมาเร็วๆ นี้นะ รอแป๊บเดียว', 'This is coming very soon. Hang on a little')
 
 const noop = () => {}
 
@@ -106,7 +109,9 @@ export function liveActions(set: MoshiSet, get: MoshiGet, demo: MoshiActions): P
     if (!me) return fail(null, t('กำลังเชื่อมต่ออยู่ รอแป๊บนึงแล้วลองใหม่นะ', 'Still connecting. Wait a moment and try again'))
     const next = { ...prev.me, ...patch, id: me }
     set(onboarded ? { me: next, onboarded: true } : { me: next })
-    const cols = { ...profilePatch(patch), ...(onboarded ? { onboarded: true } : {}) }
+    const cols: Record<string, unknown> = { ...profilePatch(patch), ...(onboarded ? { onboarded: true } : {}) }
+    // before profiles.life_stages exists, they'd fail the whole save: they stay on this device then
+    if (!features.lifeStages) delete cols.life_stages
     // profile first: joining a room after onboarding is what posts my welcome card there.
     // Each stage rolls back only itself: a saved profile stays saved if a room join fails.
     ;(async () => {
@@ -820,6 +825,167 @@ export function liveActions(set: MoshiSet, get: MoshiGet, demo: MoshiActions): P
     reportUser: (userId, reason, details) => {
       if (!isServerId(userId)) return
       w.reportUser(userId, reason, details).catch((err) => fail(err, knownError(err) ?? tx(REPORT_FAILED)))
+    },
+
+    setLifeStages: (list) => {
+      if (!features.lifeStages) return get().notify(tx(SOON))
+      saveMe({ lifeStages: normalizeLifeStages(list) })
+    },
+
+    requestIntro: async (userId) => {
+      if (isSample(userId) || !isServerId(userId)) return demo.requestIntro(userId)
+      if (!features.intros) {
+        get().notify(tx(SOON))
+        return false
+      }
+      if (!myId()) return false
+      try {
+        // the question is only used when they had asked about me first (the chat opens right away)
+        const id = await w.requestIntro(userId, pickPairQuestion().id)
+        const rows = await w.introRows([id]).catch(() => [] as IntroRequestRow[])
+        rows.forEach((row) => emitChange({ table: 'intro_requests', type: 'INSERT', row }))
+        return true
+      } catch (err) {
+        fail(err)
+        return false
+      }
+    },
+
+    respondIntro: async (introId, accept) => {
+      const intro = get().intros.find((i) => i.id === introId)
+      if (!intro || intro.direction !== 'incoming') return { ok: false }
+      if (!isServerId(introId) || isSample(intro.withUserId)) return demo.respondIntro(introId, accept)
+      // an answered intro leaves the "waiting for me" list at once
+      set((s) => ({
+        intros: accept ? s.intros.map((i) => (i.id === introId ? { ...i, status: 'accepted' } : i)) : s.intros.filter((i) => i.id !== introId),
+      }))
+      try {
+        const chatId = await w.respondIntro(introId, accept, accept ? pickPairQuestion().id : undefined)
+        if (!accept) {
+          emitChange({ table: 'intro_requests', type: 'DELETE', row: { id: introId } as IntroRequestRow })
+          return { ok: true }
+        }
+        const rows = await w.introRows([introId]).catch(() => [] as IntroRequestRow[])
+        rows.forEach((row) => emitChange({ table: 'intro_requests', type: 'UPDATE', row }))
+        // sync (re)loads the chat Mochi opened: members, Mochi's lines, the question
+        if (chatId) emitChange({ table: 'chats', type: 'INSERT', row: { id: chatId } as ChatRow })
+        return { ok: true, ...(chatId ? { chatId } : {}) }
+      } catch (err) {
+        // back as it was (only this one: others may have changed meanwhile)
+        set((s) => ({ intros: s.intros.some((i) => i.id === introId) ? s.intros.map((i) => (i.id === introId ? intro : i)) : [intro, ...s.intros] }))
+        fail(err)
+        return { ok: false }
+      }
+    },
+
+    answerPair: async (chatId, questionId, text) => {
+      const chat = findChat(chatId)
+      if (!chat) return false
+      if (isSample(chat.withUserId) || !isServerId(chat.id)) return demo.answerPair(chat.id, questionId, text)
+      if (!features.intros) {
+        get().notify(tx(SOON))
+        return false
+      }
+      const body = text.trim().slice(0, PAIR_ANSWER_MAX)
+      const me = myId()
+      if (!body || !me) return false
+      const tap = { questionId, text: body, at: new Date().toISOString() }
+      const mine: PairAnswer = { chatId: chat.id, userId: me, ...tap }
+      const without = (list: PairAnswer[] | undefined) => (list ?? []).filter((a) => !(a.userId === me && a.questionId === questionId))
+      pendingPair.set(chat.id, tap)
+      set((s) => ({ pairAnswers: { ...s.pairAnswers, [chat.id]: [...without(s.pairAnswers[chat.id]), mine] } }))
+      const settle = () => {
+        if (pendingPair.get(chat.id) === tap) pendingPair.delete(chat.id)
+      }
+      /** theirs too, if they answered first: the server shows it to me only now */
+      const fetchAll = () =>
+        w
+          .pairAnswerRows(chat.id)
+          .then((rows) => rows.forEach((row) => emitChange({ table: 'chat_pair_answers', type: 'INSERT', row })))
+          .catch((err) => console.warn('[moshi] question pair reload failed', err))
+      try {
+        const row = await w.insertPairAnswer(chat.id, me, questionId, body)
+        settle()
+        emitChange({ table: 'chat_pair_answers', type: 'INSERT', row })
+        await fetchAll()
+        return true
+      } catch (err) {
+        settle()
+        // answered already (a double tap that went through): the server's copy stands
+        if ((err as { code?: string } | null)?.code === '23505') {
+          await fetchAll()
+          return true
+        }
+        set((s) => ({ pairAnswers: { ...s.pairAnswers, [chat.id]: without(s.pairAnswers[chat.id]) } }))
+        fail(err, chat.status === 'active' ? undefined : t('รอให้แชทเปิดก่อนนะ แล้วค่อยตอบคำถามของโมชิ', "Wait for the chat to open, then answer Mochi's question"))
+        return false
+      }
+    },
+
+    watchStart: async (roomId, video) => {
+      if (!features.watch) {
+        get().notify(tx(SOON))
+        return false
+      }
+      try {
+        emitChange({ table: 'room_watch', type: 'UPDATE', row: await w.watchStart(roomId, video) })
+        return true
+      } catch (err) {
+        fail(err)
+        return false
+      }
+    },
+
+    watchControl: async (roomId, action, positionS, rate) => {
+      if (!features.watch) return false
+      try {
+        emitChange({ table: 'room_watch', type: 'UPDATE', row: await w.watchControl(roomId, action, positionS, rate) })
+        return true
+      } catch (err) {
+        fail(err)
+        // the room's state as it is, so every player snaps back to it
+        w.roomWatchRow(roomId)
+          .then((row) => row && emitChange({ table: 'room_watch', type: 'UPDATE', row }))
+          .catch(noop)
+        return false
+      }
+    },
+
+    watchStop: async (roomId) => {
+      if (!features.watch) return false
+      try {
+        emitChange({ table: 'room_watch', type: 'UPDATE', row: await w.watchStop(roomId) })
+        return true
+      } catch (err) {
+        fail(err)
+        return false
+      }
+    },
+
+    watchReport: async (roomId, ref, info) => {
+      if (!features.watch) return false
+      try {
+        emitChange({ table: 'room_watch', type: 'UPDATE', row: await w.watchReport(roomId, ref, info) })
+        return true
+      } catch (err) {
+        // nobody asked for this: no toast (the room just won't know the length yet)
+        console.warn('[moshi] watch report failed', err)
+        return false
+      }
+    },
+
+    watchSetOpen: async (roomId, open) => {
+      if (!features.watch) {
+        get().notify(tx(SOON))
+        return false
+      }
+      try {
+        emitChange({ table: 'room_watch', type: 'UPDATE', row: await w.watchSetOpen(roomId, open) })
+        return true
+      } catch (err) {
+        fail(err)
+        return false
+      }
     },
 
     setMoshiPolicy: (policy) => {

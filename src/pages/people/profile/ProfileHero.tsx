@@ -2,7 +2,9 @@ import { motion, useReducedMotion } from 'motion/react'
 import { MochiStage, View3D } from '@/components/three'
 import { MOCHI } from '@/lib/colors'
 import { t } from '@/lib/i18n'
+import { lifeStageEmoji, lifeStageLabel, sharedLifeStages } from '@/lib/lifeStages'
 import { spring } from '@/lib/motion'
+import { useMoshi } from '@/lib/store'
 import type { User } from '@/lib/types'
 import { COLOR_NAME, statusLabel } from '../lib'
 import { Rings } from './Rings'
@@ -38,7 +40,40 @@ export function ProfileHero({ user }: { user: User }) {
         <span aria-hidden className="absolute -top-2 left-1/2 size-5 -translate-x-1/2 rotate-45 rounded-sm bg-white md:top-10 md:-left-2 md:translate-x-0" />
         <p className="relative text-xs font-semibold text-ink-soft">{t(`${user.name}แนะนำตัว`, `${user.name}'s intro`)}</p>
         <p className="relative mt-0.5 text-[17px] break-words text-ink">{user.bio || t(`${user.name}ยังไม่ได้เขียนแนะนำตัว ลองทักไปถามดูสิ`, `${user.name} hasn't written an intro yet. Say hi and ask!`)}</p>
+        <LifeStages user={user} />
       </motion.div>
     </section>
+  )
+}
+
+/** "ช่วงชีวิตตอนนี้": up to 3 chips; the ones we share are lit in their colour and say so. */
+function LifeStages({ user }: { user: User }) {
+  const mine = useMoshi((s) => s.me.lifeStages)
+  const stages = user.lifeStages ?? []
+  if (!stages.length) return null
+  const shared = new Set(sharedLifeStages(stages, mine))
+  const p = MOCHI[user.color]
+  return (
+    <div className="relative mt-3 border-t border-dashed border-line pt-2.5">
+      <p className="text-xs font-semibold text-ink-soft">{t('ช่วงชีวิตตอนนี้', 'Where they are in life')}</p>
+      <ul className="mt-1.5 flex flex-wrap gap-1.5">
+        {stages.map((v) => {
+          const same = shared.has(v)
+          return (
+            <li
+              key={v}
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-sm text-ink [overflow-wrap:anywhere]"
+              style={same ? { background: p.light, boxShadow: `inset 0 0 0 1.5px ${p.shade}` } : { background: 'var(--color-cream-2)' }}
+            >
+              <span aria-hidden>{lifeStageEmoji(v)}</span>
+              <span className="min-w-0">{lifeStageLabel(v)}</span>
+              {same && (
+                <span className="shrink-0 rounded-full bg-white/90 px-1.5 text-[11px] font-semibold whitespace-nowrap">{t('เหมือนเรา', 'Same as you')}</span>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }

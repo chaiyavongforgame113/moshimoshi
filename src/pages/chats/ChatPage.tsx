@@ -1,8 +1,9 @@
 import { AnimatePresence, useReducedMotion } from 'motion/react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { Avatar, ButtonLink, PageHeader } from '@/components/ui'
-import { useChat, useDataMode, useDataReady, useMatch, usePerson } from '@/data/hooks'
+import { useChat, useDataMode, useDataReady, useMatch, usePairQuestion, usePerson } from '@/data/hooks'
+import { mochiStep, type MochiStep } from '@/data/pairQuestions'
 import { useIsDesktop } from '@/lib/hooks'
 import { getLang, L, t, tx } from '@/lib/i18n'
 import { ImageError, prepareImage, type PreparedImage } from '@/lib/image'
@@ -15,6 +16,8 @@ import { Composer } from './chat/Composer'
 import { ImageViewer, SendImageSheet, type PhotoView } from './chat/ImageSheets'
 import { MessageList, TypingBubble } from './chat/MessageList'
 import { mentionsShared, pickReply, pickupLine } from './chat/replies'
+import { MochiIntroCard } from './intro/MochiIntroCard'
+import { PairCard } from './intro/PairCard'
 import { chatPhase } from './lib'
 
 export default function ChatPage() {
@@ -78,6 +81,19 @@ function ChatRoom({ chatId, them, match }: { chatId: string; them: User; match: 
 
   const messages = chat?.messages ?? []
   const phase = chat ? chatPhase(chat) : 'open'
+  // intro chats: Mochi's intro card and the question pair sit under Mochi's own lines
+  const pair = usePairQuestion(chatId)
+  const realChatId = chat?.id ?? chatId
+  const pairLine = messages.some((m) => mochiStep(m) === 'ask')
+  const renderMochi = useCallback(
+    (step: MochiStep | undefined, _m: unknown, isNew: boolean) =>
+      step === 'intro' ? (
+        <MochiIntroCard them={them} isNew={isNew} />
+      ) : step === 'ask' ? (
+        <PairCard chatId={realChatId} them={them} meColor={meColor} isNew={isNew} />
+      ) : null,
+    [them, realChatId, meColor],
+  )
   const waiting = phase === 'ringing'
   // demo chats (and live chats with sample people, which never reach the server) answer by themselves
   const simulated = demoMode || !chat?.status
@@ -264,7 +280,10 @@ function ChatRoom({ chatId, them, match }: { chatId: string; them: User; match: 
           spill out below this scroller and let the card itself scroll (header gone, a gap under the composer) */}
       <div ref={scroller} className="flex flex-1 flex-col gap-3 px-4 pt-4 pb-5 *:shrink-0 lg:relative lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:px-6">
         {/* topics + trust ladder only make sense once they've picked up */}
-        {phase === 'open' && <IcebreakerCard topics={topics} onUse={applyTopic} />}
+        {/* an intro chat's question pair is its icebreaker: the topic cards wait until it's done */}
+        {phase === 'open' && (pair.step === 'none' || pair.step === 'revealed') && <IcebreakerCard topics={topics} onUse={applyTopic} />}
+        {/* a question pair whose Mochi line isn't here (an older chat, a line removed): the card still shows */}
+        {phase === 'open' && pair.step !== 'none' && !pairLine && <PairCard chatId={realChatId} them={them} meColor={meColor} />}
         {phase === 'open' && (
           <div ref={ladder} className="scroll-mt-24">
             <TrustLadder name={them.name} consent={consent} onToggle={(on) => setMediaConsent(chatId, on)} />
@@ -284,6 +303,7 @@ function ChatRoom({ chatId, them, match }: { chatId: string; them: User; match: 
             initialIds={initialIds}
             isMine={isMine}
             logRef={log}
+            renderMochi={renderMochi}
             onOpenImage={(m) => setView({ key: m.localId ?? m.id, mine: isMine(m.userId), path: m.image?.path })}
           />
           <AnimatePresence>{typing && <TypingBubble key="typing" them={them} />}</AnimatePresence>

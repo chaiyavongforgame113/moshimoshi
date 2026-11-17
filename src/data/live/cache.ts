@@ -8,13 +8,16 @@ import type {
   EventMessageRow,
   IntentJoinRow,
   IntentRow,
+  IntroRequestRow,
   MessageSameRow,
+  PairAnswerRow,
   ProfileRow,
   PromptSameRow,
   QuestionRow,
   RoomMemberRow,
   RoomMessageRow,
   RoomRow,
+  RoomWatchRow,
   RsvpRow,
   SessionRow,
   WaveAnswerRow,
@@ -57,6 +60,14 @@ export interface Cache {
   msgEvent: Map<string, string>
   /** "จูนคลื่น" picks: user → question → 0 / 1 */
   wave: Map<string, Map<string, number>>
+  /** "ให้โมชิแนะนำให้" requests I asked for or that are about me (as RLS shows them) */
+  intros: Map<string, IntroRequestRow>
+  /** question pair answers I can see: chat → answer id → row */
+  pairAnswers: Map<string, Map<string, PairAnswerRow>>
+  /** answer id → chat (realtime deletes carry the id alone) */
+  pairChat: Map<string, string>
+  /** rooms' clips (rooms with nothing on may be missing or have ref null) */
+  roomWatch: Map<string, RoomWatchRow>
   /** people I blocked (blocks rows) */
   blocked: Set<string>
   /** ids whose profile the server won't show us (a block either way): their lines stay hidden */
@@ -89,6 +100,10 @@ export function createCache(me: string): Cache {
     eventMsgs: new Map(),
     msgEvent: new Map(),
     wave: new Map(),
+    intros: new Map(),
+    pairAnswers: new Map(),
+    pairChat: new Map(),
+    roomWatch: new Map(),
     blocked: new Set(),
     hidden: new Set(),
   }
@@ -190,6 +205,37 @@ export function putWave(c: Cache, row: WaveAnswerRow, on: boolean) {
     picks.delete(row.question_id)
     if (!picks.size) c.wave.delete(row.user_id)
   }
+}
+
+/** An intro request in or out (a realtime delete carries the id alone). */
+export function putIntro(c: Cache, row: IntroRequestRow, on: boolean) {
+  if (on) c.intros.set(row.id, { ...c.intros.get(row.id), ...row })
+  else c.intros.delete(row.id)
+}
+
+export function putPairAnswer(c: Cache, row: PairAnswerRow) {
+  let list = c.pairAnswers.get(row.chat_id)
+  if (!list) c.pairAnswers.set(row.chat_id, (list = new Map()))
+  list.set(row.id, row)
+  c.pairChat.set(row.id, row.chat_id)
+}
+
+export function dropPairAnswer(c: Cache, id: string): string | undefined {
+  const chatId = c.pairChat.get(id)
+  if (chatId) c.pairAnswers.get(chatId)?.delete(id)
+  c.pairChat.delete(id)
+  return chatId
+}
+
+/**
+ * A room's clip as the server sent it. Changes can arrive out of order (an RPC's answer and its
+ * realtime echo): an older version than the one held is ignored. Returns true if it was taken.
+ */
+export function putRoomWatch(c: Cache, row: RoomWatchRow): boolean {
+  const held = c.roomWatch.get(row.room_id)
+  if (held && (held.version ?? 0) > (row.version ?? 0)) return false
+  c.roomWatch.set(row.room_id, { ...held, ...row })
+  return true
 }
 
 export function putJoin(c: Cache, row: IntentJoinRow, on: boolean) {

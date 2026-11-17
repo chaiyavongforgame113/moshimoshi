@@ -1,5 +1,6 @@
 // Supabase schema types for moshimoshi — same shape as `supabase gen types typescript`.
-// Mirrors supabase/migrations/20261025000001_init.sql + 20261025000002_admin.sql; regenerate after schema changes.
+// Mirrors supabase/migrations/20261025000001_init.sql + 20261025000002_admin.sql and the later files (hand-edited
+// through 20261117000001_lifestage_intro_watch.sql); regenerate after schema changes.
 // Usage: createClient<Database>(url, key) · Tables<'profiles'> · TablesInsert<'intents'>
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
@@ -163,6 +164,8 @@ export type Database = {
           created_at: string
           icebreaker: string | null
           id: string
+          kind: string
+          pair_question: string | null
           requested_by: string
           status: string
         }
@@ -170,6 +173,8 @@ export type Database = {
           created_at?: string
           icebreaker?: string | null
           id?: string
+          kind?: string
+          pair_question?: string | null
           requested_by: string
           status?: string
         }
@@ -177,6 +182,8 @@ export type Database = {
           created_at?: string
           icebreaker?: string | null
           id?: string
+          kind?: string
+          pair_question?: string | null
           requested_by?: string
           status?: string
         }
@@ -184,6 +191,204 @@ export type Database = {
           {
             foreignKeyName: 'chats_requested_by_fkey'
             columns: ['requested_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      chat_pair_answers: {
+        Row: {
+          body: string
+          chat_id: string
+          created_at: string
+          id: string
+          question_id: string
+          user_id: string
+        }
+        Insert: {
+          body: string
+          chat_id: string
+          created_at?: string
+          id?: string
+          question_id: string
+          user_id: string
+        }
+        Update: {
+          body?: string
+          chat_id?: string
+          created_at?: string
+          id?: string
+          question_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'chat_pair_answers_chat_id_fkey'
+            columns: ['chat_id']
+            isOneToOne: false
+            referencedRelation: 'chats'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'chat_pair_answers_user_id_fkey'
+            columns: ['user_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      intro_requests: {
+        Row: {
+          chat_id: string | null
+          created_at: string
+          expires_at: string
+          from_user: string
+          id: string
+          responded_at: string | null
+          status: string
+          to_user: string
+        }
+        Insert: {
+          chat_id?: string | null
+          created_at?: string
+          expires_at?: string
+          from_user: string
+          id?: string
+          responded_at?: string | null
+          status?: string
+          to_user: string
+        }
+        Update: {
+          chat_id?: string | null
+          created_at?: string
+          expires_at?: string
+          from_user?: string
+          id?: string
+          responded_at?: string | null
+          status?: string
+          to_user?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'intro_requests_chat_id_fkey'
+            columns: ['chat_id']
+            isOneToOne: false
+            referencedRelation: 'chats'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'intro_requests_from_user_fkey'
+            columns: ['from_user']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'intro_requests_to_user_fkey'
+            columns: ['to_user']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      room_watch: {
+        Row: {
+          anyone_can_control: boolean
+          duration_s: number | null
+          is_live: boolean
+          playing: boolean
+          position_at: string
+          position_s: number
+          provider: string | null
+          rate: number
+          ref: string | null
+          room_id: string
+          started_at: string | null
+          started_by: string | null
+          title: string | null
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+        Insert: {
+          anyone_can_control?: boolean
+          duration_s?: number | null
+          is_live?: boolean
+          playing?: boolean
+          position_at?: string
+          position_s?: number
+          provider?: string | null
+          rate?: number
+          ref?: string | null
+          room_id: string
+          started_at?: string | null
+          started_by?: string | null
+          title?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Update: {
+          anyone_can_control?: boolean
+          duration_s?: number | null
+          is_live?: boolean
+          playing?: boolean
+          position_at?: string
+          position_s?: number
+          provider?: string | null
+          rate?: number
+          ref?: string | null
+          room_id?: string
+          started_at?: string | null
+          started_by?: string | null
+          title?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'room_watch_room_id_fkey'
+            columns: ['room_id']
+            isOneToOne: true
+            referencedRelation: 'rooms'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      watch_viewers: {
+        Row: {
+          id: string
+          room_id: string
+          seen_at: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          room_id: string
+          seen_at?: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          room_id?: string
+          seen_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'watch_viewers_room_id_fkey'
+            columns: ['room_id']
+            isOneToOne: false
+            referencedRelation: 'rooms'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'watch_viewers_user_id_fkey'
+            columns: ['user_id']
             isOneToOne: false
             referencedRelation: 'profiles'
             referencedColumns: ['id']
@@ -468,6 +673,7 @@ export type Database = {
           is_host: boolean
           languages: string[]
           last_seen_at: string
+          life_stages: string[]
           loves: string[]
           moshi_policy: string
           name: string
@@ -490,6 +696,7 @@ export type Database = {
           is_host?: boolean
           languages?: string[]
           last_seen_at?: string
+          life_stages?: string[]
           loves?: string[]
           moshi_policy?: string
           name?: string
@@ -512,6 +719,7 @@ export type Database = {
           is_host?: boolean
           languages?: string[]
           last_seen_at?: string
+          life_stages?: string[]
           loves?: string[]
           moshi_policy?: string
           name?: string
@@ -1052,6 +1260,14 @@ export type Database = {
         Args: never
         Returns: string | null
       }
+      request_intro: {
+        Args: { p_question?: string | null; p_target: string }
+        Returns: string
+      }
+      respond_intro: {
+        Args: { p_accept: boolean; p_intro: string; p_question?: string | null }
+        Returns: string | null
+      }
       respond_moshi: {
         Args: { accept: boolean; p_chat: string }
         Returns: undefined
@@ -1060,9 +1276,143 @@ export type Database = {
         Args: { opener: string; target: string }
         Returns: string
       }
+      server_now: {
+        Args: never
+        Returns: string
+      }
       stop_repeat: {
         Args: { p_session: string }
         Returns: undefined
+      }
+      watch_control: {
+        Args: { p_action: string; p_position_s?: number | null; p_rate?: number | null; p_room: string }
+        Returns: {
+          anyone_can_control: boolean
+          duration_s: number | null
+          is_live: boolean
+          playing: boolean
+          position_at: string
+          position_s: number
+          provider: string | null
+          rate: number
+          ref: string | null
+          room_id: string
+          started_at: string | null
+          started_by: string | null
+          title: string | null
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+      }
+      watch_heartbeat: {
+        Args: { p_room: string }
+        Returns: boolean
+      }
+      watch_leave: {
+        Args: { p_room: string }
+        Returns: undefined
+      }
+      watch_report: {
+        Args: { p_duration_s?: number | null; p_is_live?: boolean; p_ref: string; p_room: string }
+        Returns: {
+          anyone_can_control: boolean
+          duration_s: number | null
+          is_live: boolean
+          playing: boolean
+          position_at: string
+          position_s: number
+          provider: string | null
+          rate: number
+          ref: string | null
+          room_id: string
+          started_at: string | null
+          started_by: string | null
+          title: string | null
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+      }
+      watch_set_open: {
+        Args: { p_open: boolean; p_room: string }
+        Returns: {
+          anyone_can_control: boolean
+          duration_s: number | null
+          is_live: boolean
+          playing: boolean
+          position_at: string
+          position_s: number
+          provider: string | null
+          rate: number
+          ref: string | null
+          room_id: string
+          started_at: string | null
+          started_by: string | null
+          title: string | null
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+      }
+      watch_start: {
+        Args: {
+          p_duration_s?: number | null
+          p_is_live?: boolean
+          p_position_s?: number
+          p_provider: string
+          p_ref: string
+          p_room: string
+          p_title?: string | null
+        }
+        Returns: {
+          anyone_can_control: boolean
+          duration_s: number | null
+          is_live: boolean
+          playing: boolean
+          position_at: string
+          position_s: number
+          provider: string | null
+          rate: number
+          ref: string | null
+          room_id: string
+          started_at: string | null
+          started_by: string | null
+          title: string | null
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+      }
+      watch_stop: {
+        Args: { p_room: string }
+        Returns: {
+          anyone_can_control: boolean
+          duration_s: number | null
+          is_live: boolean
+          playing: boolean
+          position_at: string
+          position_s: number
+          provider: string | null
+          rate: number
+          ref: string | null
+          room_id: string
+          started_at: string | null
+          started_by: string | null
+          title: string | null
+          updated_at: string
+          updated_by: string | null
+          version: number
+        }
+      }
+      wave_card_preview: {
+        Args: { p_user: string }
+        Returns: {
+          accessory: string | null
+          color: string
+          face: string | null
+          name: string
+        }[]
       }
     }
     Enums: {

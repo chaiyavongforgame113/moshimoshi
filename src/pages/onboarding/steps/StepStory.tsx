@@ -9,7 +9,7 @@ import { STORY_MAX, STORY_MIN, textLength, type StepProps } from '../model'
 import { Pill } from '../parts/Pill'
 
 /**
- * 9 · one little story (skippable). The question shows on a note card; "เปลี่ยนคำถาม" opens
+ * 10 · one little story (skippable). The question shows on a note card; "เปลี่ยนคำถาม" opens
  * the list (ending with "อื่นๆ" to ask their own). A second answer can be added on the profile.
  */
 export function StepStory({ draft, update }: StepProps) {

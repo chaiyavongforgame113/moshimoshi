@@ -10,10 +10,11 @@ import { useIsDesktop } from '@/lib/hooks'
 import { displayName, getLang, known, t } from '@/lib/i18n'
 import { fadeUp, spring, stagger } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
-import type { ChatMessage, Room, User } from '@/lib/types'
+import type { ChatMessage, Room, RoomWatch, User } from '@/lib/types'
 import { useIsMine } from '@/pages/people/lib'
 import { Bone } from '@/pages/people/Skeleton'
 import { parseWelcome, welcomeText } from '../roomData'
+import { isWatchNote, useWatchNotes, WatchNoteLine } from '../watch/WatchBits'
 import { MyBubble, TheirBubble } from './Bubbles'
 import { Composer, JoinToChat, type Draft } from './Composer'
 import { MessageSheet, type MessageTarget } from './MessageActions'
@@ -56,6 +57,8 @@ export function ChatTab({
   onDraft,
   jump,
   loading = false,
+  watch = null,
+  ideas = true,
 }: {
   room: Room
   messages: ChatMessage[]
@@ -73,6 +76,13 @@ export function ChatTab({
   jump: boolean
   /** live: the room's history hasn't arrived yet */
   loading?: boolean
+  /** the clip the room is watching together: a "เปิดคลิป" line goes into the chat where it started */
+  watch?: RoomWatch | null
+  /**
+   * the composer's "ไอเดียทักทาย" list (it opens upward over the page). Off while a clip sticks at the
+   * top of the screen on phones and tablets: nothing may cover the player
+   */
+  ideas?: boolean
 }) {
   const desktop = useIsDesktop()
   const reduce = useReducedMotion()
@@ -89,7 +99,9 @@ export function ChatTab({
   const endRef = useRef<HTMLDivElement>(null)
   const logRef = useRef<HTMLDivElement>(null)
   const joinRef = useRef<HTMLDivElement>(null)
-  const prevCount = useRef(messages.length)
+  // the room's own messages, plus a line when a clip went on
+  const shown = useWatchNotes(watch, messages, loading)
+  const prevCount = useRef(shown.length)
   const prevTyping = useRef(typing)
   const settled = useRef(!loading)
 
@@ -137,15 +149,15 @@ export function ChatTab({
   useEffect(() => {
     if (!settled.current) {
       settled.current = !loading
-      prevCount.current = messages.length
+      prevCount.current = shown.length
       prevTyping.current = typing
       return
     }
-    const grew = messages.length > prevCount.current || (!!typing && typing !== prevTyping.current)
-    prevCount.current = messages.length
+    const grew = shown.length > prevCount.current || (!!typing && typing !== prevTyping.current)
+    prevCount.current = shown.length
     prevTyping.current = typing
     if (grew && !sheetOpen.current) endRef.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'end' })
-  }, [messages.length, typing, reduce, loading])
+  }, [shown.length, typing, reduce, loading])
 
   useEffect(() => {
     if (!jump) return
@@ -154,7 +166,7 @@ export function ChatTab({
   }, [jump, reduce])
 
   const typer = typing ? byId.get(typing) : undefined
-  const items = useMemo(() => chatItems(messages), [messages])
+  const items = useMemo(() => chatItems(shown), [shown])
 
   return (
     <section aria-label={t(`แชทห้อง${room.name}`, `${room.name} chat`)}>
@@ -194,6 +206,13 @@ export function ChatTab({
               )
             }
             const { message: m, prev } = item
+            if (isWatchNote(m)) {
+              return (
+                <motion.li key={m.id} variants={fadeUp} className="my-3 text-center">
+                  <WatchNoteLine message={m} />
+                </motion.li>
+              )
+            }
             if (m.kind === 'system') {
               return (
                 <motion.li key={m.id} variants={fadeUp} className="my-3 text-center">
@@ -274,7 +293,7 @@ export function ChatTab({
           roomName={room.name}
           onSend={(text) => onSend(text)}
           photo={perms.canPost ? <PhotoButton roomId={room.id} /> : undefined}
-          suggestions={mine.length ? [] : SUGGESTIONS[getLang()]}
+          suggestions={mine.length || !ideas ? [] : SUGGESTIONS[getLang()]}
           desktop={desktop}
           initialText={draft?.text}
           autoFocus={typeNext}

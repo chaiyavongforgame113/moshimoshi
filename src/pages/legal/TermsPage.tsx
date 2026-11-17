@@ -16,6 +16,18 @@ function PrivacyLink() {
 
 const privacyLink = <PrivacyLink />
 
+/** A link to another site's terms (opens in a new tab). */
+function Ext({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="font-semibold underline decoration-ink/25 underline-offset-4 hover:decoration-ink">
+      {children}
+    </a>
+  )
+}
+
+const YOUTUBE_TERMS = 'https://www.youtube.com/t/terms'
+const VIMEO_TERMS = 'https://vimeo.com/terms'
+
 // Built while rendering (not at module load) so every clause reads in the current language.
 // <Note> points for the lawyer stay Thai: they only show in review mode.
 
@@ -137,6 +149,21 @@ const sections = (): LegalSection[] => [
           {t(
             'สัญญาณถูกคอ 5 ระดับบอกแค่ว่าเรื่องที่สนใจคล้ายกันแค่ไหน ไม่ใช่คะแนนตัดสินใคร และไม่ได้รับประกันว่าจะเข้ากันได้หรือปลอดภัย เราไม่ได้ตรวจสอบตัวตนหรือประวัติของผู้ใช้',
             "The 5-level vibe signal only shows how similar your interests are. It is not a score that judges anyone, and it does not guarantee that you will get along or that anyone is safe. We do not verify users' identities or backgrounds.",
+          )}
+        </P>
+        <P>
+          {tn(
+            <>
+              การดูคลิปด้วยกันในห้องใช้ตัวเล่นของ YouTube (ผ่าน YouTube API Services) และ Vimeo เมื่อคุณดูหรือเปิดคลิปจาก YouTube ถือว่าคุณตกลงตาม
+              <Ext href={YOUTUBE_TERMS}>ข้อกำหนดในการให้บริการของ YouTube</Ext> และคลิปจาก Vimeo เป็นไปตาม<Ext href={VIMEO_TERMS}>ข้อกำหนดของ Vimeo</Ext>{' '}
+              เปิดได้เฉพาะคลิปที่คุณมีสิทธิ์แชร์ และห้ามใช้เปิดเนื้อหาที่ผิดกติกาชุมชน
+            </>,
+            <>
+              Watching clips together in a room uses the YouTube player (through YouTube API Services) and the Vimeo player. By watching or putting on a YouTube
+              clip, you agree to be bound by the <Ext href={YOUTUBE_TERMS}>YouTube Terms of Service</Ext>, and Vimeo clips are covered by the{' '}
+              <Ext href={VIMEO_TERMS}>Vimeo Terms of Service</Ext>. Only put on clips you have the right to share, and never use it to show content that breaks
+              the community rules.
+            </>,
           )}
         </P>
         <P>

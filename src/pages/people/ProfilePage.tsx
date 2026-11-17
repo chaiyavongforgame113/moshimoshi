@@ -11,6 +11,7 @@ import { spring } from '@/lib/motion'
 import type { MatchResult, User } from '@/lib/types'
 import { chatPhase, chatToOpen } from '@/pages/chats/lib'
 import { ageLabel, useIsMine } from './lib'
+import { IntroButton } from './IntroButton'
 import { HelloSent } from './profile/HelloSent'
 import { ProfileHero } from './profile/ProfileHero'
 import { AboutBlock, IntentsBlock, PromptsBlock, RoomsBlock, TagsBlock, WhyBlock } from './profile/ProfileSections'
@@ -98,7 +99,17 @@ function Profile({ user, match }: { user: User; match: MatchResult }) {
         ) : (
           <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <ProfileHero user={user} />
-            <WhyBlock match={match} user={user} showOpener={!chat} cta={<div ref={ctaBox}>{cta(false)}</div>} />
+            <WhyBlock
+              match={match}
+              user={user}
+              showOpener={!chat}
+              cta={
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                  <div ref={ctaBox}>{cta(false)}</div>
+                  <IntroButton userId={user.id} />
+                </div>
+              }
+            />
             <Reveal>
               <TagsBlock match={match} user={user} />
             </Reveal>

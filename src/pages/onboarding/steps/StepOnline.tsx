@@ -6,7 +6,7 @@ import { fadeUp, spring } from '@/lib/motion'
 import type { StepProps } from '../model'
 import { SLOT_OPTIONS } from '../options'
 
-/** 7 · when they're usually around (any number of slots; skippable). */
+/** 8 · when they're usually around (any number of slots; skippable). */
 export function StepOnline({ draft, update }: StepProps) {
   const reduce = useReducedMotion()
   return (

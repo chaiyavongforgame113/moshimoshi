@@ -6,6 +6,7 @@ import {
   dropChat,
   dropChatMessage,
   dropEventMessage,
+  dropPairAnswer,
   dropRoomMessage,
   pairKey,
   putAnswerSame,
@@ -13,11 +14,14 @@ import {
   putChatMessage,
   putChatSame,
   putEventMessage,
+  putIntro,
   putJoin,
   putMember,
   putMessageSame,
+  putPairAnswer,
   putPromptSame,
   putRoomMessage,
+  putRoomWatch,
   putRsvp,
   putWave,
   type Cache,
@@ -27,6 +31,7 @@ import {
   chatsPatch,
   eventMessagesPatch,
   intentsPatch,
+  introsPatch,
   mePatch,
   myAnswersPatch,
   myGoingPatch,
@@ -34,10 +39,12 @@ import {
   myJoinsPatch,
   mySamesPatch,
   myWavePatch,
+  pairAnswersPatch,
   peoplePatch,
   questionsPatch,
   roomMessagesPatch,
   roomsPatch,
+  roomWatchPatch,
   sessionsPatch,
   storySamesPatch,
   wavePatch,
@@ -50,6 +57,8 @@ export interface ApplyEffects {
   needProfiles: (ids: string[]) => void
   /** a message landed in a chat: mark it read if that chat is on screen */
   readIfOpen: (chatId: string, createdAt: string) => void
+  /** Mochi spoke in an intro chat (the question pair may have opened): fetch its answers again */
+  needPair: (chatId: string) => void
 }
 
 /**
@@ -192,6 +201,7 @@ export function applyToCache(c: Cache, ch: Change, fx: ApplyEffects) {
         return
       }
       if (ch.row.user_id && ch.row.user_id !== me) fx.readIfOpen(ch.row.chat_id, ch.row.created_at)
+      if (ch.row.kind === 'mochi' && ch.type === 'INSERT') fx.needPair(ch.row.chat_id)
       apply({}, chatsPatch(c))
       return
     }
@@ -207,6 +217,30 @@ export function applyToCache(c: Cache, ch: Change, fx: ApplyEffects) {
       if (!row) return
       apply(row.profile_id === me ? storySamesPatch(c) : {}, row.user_id === me ? mySamesPatch(c) : {})
       if (!del && row.profile_id === me) fx.needProfiles([row.user_id])
+      return
+    }
+    case 'intro_requests': {
+      putIntro(c, ch.row, !del)
+      apply({}, introsPatch(c))
+      if (del) return
+      // accepted: the chat Mochi opened (it may not have reached us yet)
+      if (ch.row.chat_id && !c.chats.has(ch.row.chat_id)) fx.needChat(ch.row.chat_id)
+      if (ch.row.from_user) fx.needProfiles([ch.row.from_user === me ? ch.row.to_user : ch.row.from_user])
+      return
+    }
+    case 'chat_pair_answers': {
+      if (del) {
+        if (dropPairAnswer(c, ch.row.id)) apply({}, pairAnswersPatch(c))
+        return
+      }
+      putPairAnswer(c, ch.row)
+      apply({}, pairAnswersPatch(c))
+      return
+    }
+    case 'room_watch': {
+      if (del) c.roomWatch.delete(ch.row.room_id)
+      else if (!putRoomWatch(c, ch.row)) return
+      apply(roomWatchPatch(c), {})
       return
     }
     case 'blocks': {

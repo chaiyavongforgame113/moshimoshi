@@ -1,11 +1,12 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Hand, MessageCircleHeart, Send, Sparkles } from 'lucide-react'
-import { useMemo, useRef, type Ref } from 'react'
+import { Fragment, useMemo, useRef, type ReactNode, type Ref } from 'react'
 import { Avatar } from '@/components/ui'
 import { MOCHI } from '@/lib/colors'
 import { known, t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import type { ChatMessage, MochiColor, User } from '@/lib/types'
+import { mochiStep, type MochiStep } from '@/data/pairQuestions'
 import { systemText } from '../lib'
 import { SameButton } from '../SameButton'
 import { ChatPhoto } from './ImageSheets'
@@ -16,8 +17,9 @@ interface Entry {
 }
 
 type Group =
-  | { key: string; system: true; msg: ChatMessage }
-  | { key: string; system: false; mine: boolean; msgs: Entry[] }
+  | { key: string; system: true; mochi?: false; msg: ChatMessage }
+  | { key: string; system: false; mochi: true; msgs: Entry[] }
+  | { key: string; system: false; mochi?: false; mine: boolean; msgs: Entry[] }
 
 function groupMessages(messages: ChatMessage[], isMine: (id: string) => boolean): Group[] {
   const out: Group[] = []
@@ -32,12 +34,19 @@ function groupMessages(messages: ChatMessage[], isMine: (id: string) => boolean)
   }
   for (const m of messages) {
     const key = keyOf(m)
+    // Mochi's lines in an intro chat: a third voice with its own bubbles (one run, one avatar)
+    if (m.kind === 'mochi') {
+      const prev = out[out.length - 1]
+      if (prev && prev.mochi) prev.msgs.push({ msg: m, key })
+      else out.push({ key, system: false, mochi: true, msgs: [{ msg: m, key }] })
+      continue
+    }
     if (m.kind === 'system' || m.kind === 'welcome' || m.userId === 'system') {
       out.push({ key, system: true, msg: m })
       continue
     }
     const prev = out[out.length - 1]
-    if (prev && !prev.system && prev.msgs[0].msg.userId === m.userId) prev.msgs.push({ msg: m, key })
+    if (prev && !prev.system && !prev.mochi && prev.msgs[0].msg.userId === m.userId) prev.msgs.push({ msg: m, key })
     else out.push({ key, system: false, mine: isMine(m.userId), msgs: [{ msg: m, key }] })
   }
   return out
@@ -57,17 +66,20 @@ interface ListProps {
   onOpenImage?: (m: ChatMessage) => void
   /** the list itself: takes the focus when the photo that had it is gone and there's no composer */
   logRef?: Ref<HTMLDivElement>
+  /** intro chats: what goes under one of Mochi's lines (the intro card, the question pair) */
+  renderMochi?: (step: MochiStep | undefined, msg: ChatMessage, isNew: boolean) => ReactNode
 }
 
 const demoMine = (id: string) => id === 'me'
 
-export function MessageList({ messages, them, meColor, sames, onSame, initialIds, isMine = demoMine, onOpenImage, logRef }: ListProps) {
+export function MessageList({ messages, them, meColor, sames, onSame, initialIds, isMine = demoMine, onOpenImage, logRef, renderMochi }: ListProps) {
   const groups = useMemo(() => groupMessages(messages, isMine), [messages, isMine])
   let index = 0
   return (
     <div ref={logRef} role="log" tabIndex={-1} aria-label={t(`ข้อความกับ${them.name}`, `Messages with ${them.name}`)} className="space-y-4 outline-none">
       {groups.map((g) => {
         if (g.system) return <SystemLine key={g.key} msg={g.msg} isNew={!initialIds.has(g.msg.id)} />
+        if (g.mochi) return <MochiRun key={g.key} msgs={g.msgs} initialIds={initialIds} render={renderMochi} />
         const last = g.msgs[g.msgs.length - 1].msg
         return (
           <div key={g.key} className={`flex items-end gap-2 ${g.mine ? 'justify-end' : ''}`}>
@@ -100,6 +112,47 @@ export function MessageList({ messages, them, meColor, sames, onSame, initialIds
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * Mochi's lines: "น้องโมชิ" with its own avatar and a soft butter-to-lavender bubble, so it reads as
+ * a third voice. Whatever renderMochi gives for a line (the intro card, the question pair) sits right under it.
+ */
+function MochiRun({ msgs, initialIds, render }: { msgs: Entry[]; initialIds: Set<string>; render?: ListProps['renderMochi'] }) {
+  const reduce = useReducedMotion()
+  const name = t('น้องโมชิ', 'Little Mochi')
+  const last = msgs[msgs.length - 1].msg
+  return (
+    <div className="space-y-2">
+      {msgs.map(({ msg: m, key }, i) => {
+        const isNew = !initialIds.has(m.id)
+        const extra = render?.(mochiStep(m), m, isNew)
+        return (
+          <Fragment key={key}>
+            <div className="flex items-start gap-2">
+              {i === 0 ? <Avatar color="peach" size={32} face="wink" label={name} className="shrink-0" /> : <span aria-hidden className="w-8 shrink-0" />}
+              <div className="flex max-w-[85%] min-w-0 flex-col items-start gap-1 sm:max-w-[70%]">
+                {i === 0 && <span className="px-1 text-[11px] font-semibold text-ink-soft">{name}</span>}
+                <motion.p
+                  initial={reduce ? false : isNew ? { opacity: 0, y: 14, scale: 0.85 } : { opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={isNew ? spring.bouncy : spring.soft}
+                  style={{ transformOrigin: 'top left', background: `linear-gradient(140deg, ${MOCHI.butter.light}, ${MOCHI.lavender.light})` }}
+                  className={`rounded-3xl border border-white/90 px-4 py-2.5 text-[15px] leading-relaxed text-ink shadow-[var(--shadow-soft)] ${i === 0 ? 'rounded-tl-md' : 'rounded-tl-lg'}`}
+                >
+                  <span className="sr-only">{name}: </span>
+                  <Sparkles size={14} strokeWidth={2.4} aria-hidden className="mr-1.5 inline-block -translate-y-px text-ink" />
+                  <span className="[overflow-wrap:anywhere]">{systemText(m.text)}</span>
+                </motion.p>
+              </div>
+            </div>
+            {extra && <div className="min-w-0 sm:pl-10">{extra}</div>}
+          </Fragment>
+        )
+      })}
+      <time className="block pl-10 text-[11px] text-ink-soft">{known(last.at)}</time>
     </div>
   )
 }

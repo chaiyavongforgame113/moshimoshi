@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import type { MochiExpression } from '@/components/three'
 import { Avatar, IconButton, LangToggle } from '@/components/ui'
-import { useDataMode, useDataReady, useRooms } from '@/data/hooks'
+import { useDataMode, useDataReady, useRooms, useServerFeatures } from '@/data/hooks'
 import { useIsDesktop } from '@/lib/hooks'
 import { getLang, t } from '@/lib/i18n'
 import { ease, spring } from '@/lib/motion'
@@ -18,13 +18,14 @@ import {
   initialDraft,
   isOptional,
   lookPatch,
-  QUESTION_OF,
-  QUESTIONS,
+  questionCount,
+  questionOf,
   SCREEN_ORDER,
   screenFlow,
   validate,
   type Draft,
   type DraftPatch,
+  type FlowOptions,
   type ScreenKey,
   type StepCheck,
 } from './model'
@@ -36,6 +37,7 @@ import { StepActions } from './parts/StepActions'
 import { StepProgress } from './parts/StepProgress'
 import { StepDone } from './steps/StepDone'
 import { StepIntent } from './steps/StepIntent'
+import { StepLife } from './steps/StepLife'
 import { StepInterests } from './steps/StepInterests'
 import { StepLoves } from './steps/StepLoves'
 import { StepMochi } from './steps/StepMochi'
@@ -85,6 +87,9 @@ function Onboarding() {
   const removeIntent = useMoshi((s) => s.removeIntent)
   const rooms = useRooms()
   const mode = useDataMode()
+  const features = useServerFeatures()
+  // life stages need the server to keep them (always on in demo)
+  const flowOptions: FlowOptions = { lifeStages: features.lifeStages }
   const desktop = useIsDesktop()
   const navigate = useNavigate()
 
@@ -125,11 +130,11 @@ function Onboarding() {
       if (was.face === draft.face) flash('happy', 1100)
     }
     if (was.name !== draft.name && draft.name.trim()) flash('talk', 380)
-    if (was.loves.length < draft.loves.length || was.tags.length < draft.tags.length) flash('happy', 700)
+    if (was.loves.length < draft.loves.length || was.tags.length < draft.tags.length || was.lifeStages.length < draft.lifeStages.length) flash('happy', 700)
   }, [draft, flash])
 
   const done = screen === 'done'
-  const flow = screenFlow(draft)
+  const flow = screenFlow(draft, flowOptions)
   const at = Math.max(0, flow.indexOf(screen))
   const nameOk = draft.name.trim().length > 0
   const expression: MochiExpression = done ? 'happy' : (flashExpr ?? (screen === 'name' && nameOk ? 'happy' : screen === 'rules' ? 'wink' : draft.face))
@@ -145,6 +150,8 @@ function Onboarding() {
   // live: leaving early needs a name, and finishes onboarding with what we know so far (no age limit);
   // answers already given are kept, so "ไว้ทีหลัง" never throws anything away. No board post yet.
   const canLeave = mode === 'demo' || onboarded || nameOk
+  // only saved when the screen was on offer (otherwise a profile's saved stages stay as they are)
+  const lifePatch: Partial<User> = flowOptions.lifeStages ? { lifeStages: draft.lifeStages } : {}
   const leaveEarly = () => {
     if (mode !== 'live' || onboarded) return
     completeOnboarding({
@@ -156,6 +163,7 @@ function Onboarding() {
       prompts: cleanPrompts(draft),
       online: draft.online,
       chatStyle: draft.chatStyle,
+      ...lifePatch,
       ...(draft.rooms.length ? { rooms: draft.rooms } : {}),
       ...(firstTime && draft.tags.length ? { bio: autoBio(draft) } : {}),
     })
@@ -181,6 +189,7 @@ function Onboarding() {
       prompts: cleanPrompts(draft),
       online: draft.online,
       chatStyle: draft.chatStyle,
+      ...lifePatch,
       rooms: draft.rooms,
       ...(firstTime ? { bio: autoBio(draft) } : {}),
     }
@@ -273,6 +282,8 @@ function Onboarding() {
         return <StepIntent {...stepProps} />
       case 'topic':
         return <StepTopic {...stepProps} />
+      case 'life':
+        return <StepLife {...stepProps} />
       case 'online':
         return <StepOnline {...stepProps} />
       case 'style':
@@ -320,7 +331,15 @@ function Onboarding() {
     <MotionConfig reducedMotion="user">
       {/* overflow-x-clip: the sideways step slide must never cause horizontal scroll (clip keeps sticky working) */}
       <div className="relative z-10 min-h-dvh overflow-x-clip">
-        <Header screen={screen} desktop={desktop} onBack={back} canLeave={canLeave} onLeave={leaveEarly} />
+        <Header
+          screen={screen}
+          question={questionOf(screen, flowOptions)}
+          questions={questionCount(flowOptions)}
+          desktop={desktop}
+          onBack={back}
+          canLeave={canLeave}
+          onLeave={leaveEarly}
+        />
         {desktop ? (
           <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,5fr)_minmax(0,6fr)] items-start gap-8 px-8 pt-2 pb-12 xl:gap-12">
             <aside className="sticky top-[6.75rem]" aria-label={t('ตัวอย่างโปรไฟล์', 'Profile preview')}>
@@ -344,19 +363,21 @@ function Onboarding() {
 
 interface HeaderProps {
   screen: ScreenKey
+  /** "3/11": this screen's question number, and how many there are */
+  question: number
+  questions: number
   desktop: boolean
   onBack: () => void
   canLeave: boolean
   onLeave: () => void
 }
 
-function Header({ screen, desktop, onBack, canLeave, onLeave }: HeaderProps) {
+function Header({ screen, question: q, questions, desktop, onBack, canLeave, onLeave }: HeaderProps) {
   const done = screen === 'done'
   const label = screenLabel(screen)
-  const q = QUESTION_OF[screen]
   const count = (
     <span className="shrink-0 font-display text-xs font-semibold text-ink-soft tabular-nums" aria-hidden>
-      {done ? '✓' : `${q}/${QUESTIONS}`}
+      {done ? '✓' : `${q}/${questions}`}
     </span>
   )
   const animatedLabel = (
@@ -395,7 +416,7 @@ function Header({ screen, desktop, onBack, canLeave, onLeave }: HeaderProps) {
             <span className="min-w-0">{animatedLabel}</span>
             {count}
           </div>
-          <StepProgress step={q - 1} total={QUESTIONS} label={screenLabel(screen)} done={done} />
+          <StepProgress step={q - 1} total={questions} label={screenLabel(screen)} done={done} />
           <span className="sm:hidden">{count}</span>
         </div>
 

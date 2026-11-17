@@ -1,5 +1,8 @@
-import { Fragment, lazy, Suspense, type ReactNode } from 'react'
-import { createBrowserRouter, Navigate, Outlet, ScrollRestoration } from 'react-router'
+import { Fragment, lazy, Suspense, useEffect, type ReactNode } from 'react'
+import { createBrowserRouter, Navigate, Outlet, ScrollRestoration, useLocation, useNavigate, useParams } from 'react-router'
+import { comparePath, rememberCompareInvite, takeCompareInvite } from '@/data/compare'
+import { useMyId } from '@/data/hooks'
+import { useAuth } from '@/lib/auth'
 import { t, useLang } from '@/lib/i18n'
 import { LiveBoot, LiveToast, RequireAuth } from '@/pages/auth/guards'
 import { AppShell } from './AppShell'
@@ -19,6 +22,7 @@ const ChatPage = lazy(() => import('@/pages/chats/ChatPage'))
 const MePage = lazy(() => import('@/pages/me/MePage'))
 const EventPage = lazy(() => import('@/pages/events/EventPage'))
 const TunePage = lazy(() => import('@/pages/tune/TunePage'))
+const ComparePage = lazy(() => import('@/pages/compare/ComparePage'))
 const LoginPage = lazy(() => import('@/pages/auth/LoginPage'))
 const AuthCallbackPage = lazy(() => import('@/pages/auth/AuthCallbackPage'))
 const AdminPage = lazy(() => import('@/pages/admin/AdminPage'))
@@ -54,6 +58,37 @@ function Root() {
   )
 }
 
+/**
+ * /c/:userId, the link on a wave card: open to everyone. Signed out, the teaser (name + mochi, then
+ * sign in); signed in (or demo), on to the comparison. Either way the invite is remembered, so
+ * someone who signs up first (login → onboarding → /app) still lands on the comparison.
+ */
+function CompareGate() {
+  const { userId = '' } = useParams()
+  const { status } = useAuth()
+  useEffect(() => {
+    if (userId) rememberCompareInvite(userId)
+  }, [userId])
+  if (!userId) return <Navigate to="/" replace />
+  if (status === 'signedIn' || status === 'demo') return <Navigate to={comparePath(userId)} replace />
+  if (status === 'loading') return <PageFallback />
+  return page(<ComparePage teaser />)
+}
+
+/** Inside the app shell: a wave card that brought me here before sign-up opens once I'm in. */
+function PendingCompare() {
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const myId = useMyId()
+  useEffect(() => {
+    if (!myId || pathname.startsWith('/app/compare/')) return
+    const id = takeCompareInvite(myId)
+    if (id) navigate(comparePath(id))
+    // once per person, when the app shell opens (not on every navigation)
+  }, [myId])
+  return null
+}
+
 /** Installed PWA opens straight into the app instead of the marketing page. */
 function LandingOrApp() {
   const standalone = window.matchMedia('(display-mode: standalone)').matches
@@ -70,6 +105,8 @@ export const router = createBrowserRouter([
       { path: '/auth/callback', element: page(<AuthCallbackPage />) },
       { path: '/privacy', element: page(<PrivacyPage />) },
       { path: '/terms', element: page(<TermsPage />) },
+      // a wave card's link: public teaser, then the comparison (see CompareGate)
+      { path: '/c/:userId', element: <CompareGate /> },
       // staff console: signed in via the live guard (no onboarding detour), then the page checks is_admin() itself
       { path: '/admin', element: <RequireAuth onboarding>{page(<AdminPage />)}</RequireAuth> },
       { path: '/admin/rooms', element: <RequireAuth onboarding>{page(<AdminRoomsPage />)}</RequireAuth> },
@@ -81,6 +118,7 @@ export const router = createBrowserRouter([
         // live mode: signed in + onboarded (demo mode passes straight through)
         element: (
           <RequireAuth>
+            <PendingCompare />
             <AppShell />
           </RequireAuth>
         ),
@@ -96,6 +134,8 @@ export const router = createBrowserRouter([
           { path: 'me', element: page(<MePage />) },
           { path: 'events/:sessionId', element: page(<EventPage />) },
           { path: 'tune', element: page(<TunePage />) },
+          // comparing waves with whoever's wave card brought me here (watching together lives in RoomPage)
+          { path: 'compare/:userId', element: page(<ComparePage />) },
         ],
       },
       { path: '*', element: <Navigate to="/" replace /> },

@@ -1,21 +1,27 @@
 import type { BlockedPerson } from '@/data/blocked'
 import { imageFromPath } from '@/data/chatImages'
 import { cutText } from '@/data/tags'
+import { normalizeLifeStages } from '@/lib/lifeStages'
 import type {
   Chat,
   ChatMessage,
+  ComparePreview,
   DailyAnswer,
   DailyQuestion,
   Intent,
   IntentRole,
   IntentTemplate,
   IntentWhen,
+  IntroRequest,
   MochiColor,
   OnlineSlot,
+  PairAnswer,
   PromptAnswer,
   Room,
+  RoomWatch,
   Session,
   User,
+  WatchProvider,
 } from '@/lib/types'
 import type {
   AnswerRow,
@@ -26,10 +32,13 @@ import type {
   ChatStatus,
   EventMessageRow,
   IntentRow,
+  IntroRequestRow,
+  PairAnswerRow,
   ProfileRow,
   QuestionRow,
   RoomMessageRow,
   RoomRow,
+  RoomWatchRow,
   SessionRow,
 } from './rows'
 import { bangkokYear, dayOffset, hhmm, lastActiveLabel, messageTime, minutesAgo } from './time'
@@ -94,6 +103,8 @@ export function toUser(p: ProfileRow, rooms: string[], present: boolean, now = D
     online: (p.online ?? []).filter((s): s is OnlineSlot => SLOTS.includes(s as OnlineSlot)),
     rooms,
     languages: p.languages?.length ? p.languages : ['ไทย'],
+    // only once the column exists: before that the field stays out (unknown, not "none")
+    ...(p.life_stages !== undefined ? { lifeStages: strings(p.life_stages) } : {}),
     isHost: !!p.is_host,
     lastActive: isOnline ? 'ออนไลน์อยู่' : lastActiveLabel(p.last_seen_at, now),
     isOnline,
@@ -134,6 +145,7 @@ export function profilePatch(u: Partial<User>) {
   if (u.chatStyle !== undefined) patch.chat_style = u.chatStyle
   if (u.online !== undefined) patch.online = u.online
   if (u.languages !== undefined) patch.languages = u.languages
+  if (u.lifeStages !== undefined) patch.life_stages = normalizeLifeStages(u.lifeStages)
   return patch
 }
 
@@ -234,7 +246,7 @@ export function toQuestion(q: QuestionRow, answers: AnswerRow[], sameCount: (a: 
   return { id: q.id, roomId: q.room_id, text: q.body, answers: list, ...(mySameBy.length ? { mySameBy } : {}) }
 }
 
-const KINDS: readonly NonNullable<ChatMessage['kind']>[] = ['text', 'system', 'welcome', 'image']
+const KINDS: readonly NonNullable<ChatMessage['kind']>[] = ['text', 'system', 'welcome', 'image', 'mochi']
 
 export function toMessage(row: RoomMessageRow | ChatMessageRow, sameBy: string[], now = Date.now()): ChatMessage {
   const kind = oneOf(KINDS, row.kind) ?? (row.user_id ? 'text' : 'system')
@@ -261,10 +273,10 @@ export function toChat(
   const other = members.find((m) => m.user_id !== myId)
   const mine = members.find((m) => m.user_id === myId)
   const readAt = mine?.last_read_at ? Date.parse(mine.last_read_at) : 0
-  // their lines, plus "picked up" on a moshi I rang (a system line, but news to me)
+  // their lines, plus "picked up" on a moshi I rang (a system line, but news to me), plus Mochi's lines
   const pickedUp = chat.status === 'active' && chat.requested_by === myId
   const unread = rows.filter(
-    (r) => Date.parse(r.created_at) > readAt && (r.user_id ? r.user_id !== myId : pickedUp && r.kind === 'system'),
+    (r) => Date.parse(r.created_at) > readAt && (r.user_id ? r.user_id !== myId : r.kind === 'mochi' || (pickedUp && r.kind === 'system')),
   ).length
   return {
     id: chat.id,
@@ -275,5 +287,74 @@ export function toChat(
     status: chat.status === 'active' || chat.status === 'ended' ? chat.status : 'pending',
     requestedBy: chat.requested_by,
     consent: { me: !!mine?.consent_media, them: !!other?.consent_media },
+    ...(chat.kind === 'intro' ? { kind: 'intro' as const } : {}),
+    ...(chat.pair_question ? { pairQuestion: chat.pair_question } : {}),
+  }
+}
+
+/** An intro request as I see it. Waiting past its time reads 'expired' (the server marks it within the hour). */
+export function toIntro(r: IntroRequestRow, myId: string, now = Date.now()): IntroRequest {
+  const outgoing = r.from_user === myId
+  const expired = r.status === 'expired' || (r.status !== 'accepted' && Date.parse(r.expires_at) <= now)
+  return {
+    id: r.id,
+    fromUserId: r.from_user,
+    toUserId: r.to_user,
+    direction: outgoing ? 'outgoing' : 'incoming',
+    withUserId: outgoing ? r.to_user : r.from_user,
+    status: r.status === 'accepted' ? 'accepted' : expired ? 'expired' : 'pending',
+    createdAt: r.created_at,
+    expiresAt: r.expires_at,
+    ...(r.chat_id ? { chatId: r.chat_id } : {}),
+  }
+}
+
+export function toPairAnswer(r: PairAnswerRow): PairAnswer {
+  return { chatId: r.chat_id, userId: r.user_id, questionId: r.question_id, text: r.body, at: r.created_at }
+}
+
+const PROVIDERS: readonly WatchProvider[] = ['youtube', 'vimeo', 'file']
+const num = (v: number | string | null | undefined): number | undefined => {
+  const n = typeof v === 'string' ? Number.parseFloat(v) : v
+  return typeof n === 'number' && Number.isFinite(n) ? n : undefined
+}
+const ms = (iso: string | null | undefined): number | undefined => {
+  const t = iso ? Date.parse(iso) : NaN
+  return Number.isNaN(t) ? undefined : t
+}
+
+/** A room's clip (null when nothing is on, or it's from a provider this app doesn't know). */
+export function toRoomWatch(r: RoomWatchRow): RoomWatch | null {
+  const provider = oneOf(PROVIDERS, r.provider)
+  if (!provider || !r.ref) return null
+  const duration = num(r.duration_s)
+  return {
+    roomId: r.room_id,
+    provider,
+    ref: r.ref,
+    ...(r.title?.trim() ? { title: r.title } : {}),
+    ...(duration ? { durationS: duration } : {}),
+    isLive: !!r.is_live,
+    playing: !!r.playing,
+    positionS: Math.max(0, num(r.position_s) ?? 0),
+    positionAt: ms(r.position_at) ?? Date.now(),
+    rate: num(r.rate) ?? 1,
+    ...(r.started_by ? { startedBy: r.started_by } : {}),
+    ...(ms(r.started_at) ? { startedAt: ms(r.started_at) } : {}),
+    anyoneCanControl: !!r.anyone_can_control,
+    ...(r.updated_by ? { updatedBy: r.updated_by } : {}),
+    ...(ms(r.updated_at) ? { updatedAt: ms(r.updated_at) } : {}),
+    version: num(r.version) ?? 0,
+  }
+}
+
+/** A wave_card_preview() row → the teaser (the same fallbacks as toUser). */
+export function toComparePreview(userId: string, r: { name: string | null; color: string | null; face: string | null; accessory: string | null }): ComparePreview {
+  return {
+    userId,
+    name: r.name?.trim() || 'เพื่อนใหม่',
+    color: oneOf(COLORS, r.color, 'peach'),
+    ...(oneOf(FACES, r.face) ? { face: oneOf(FACES, r.face) } : {}),
+    ...(oneOf(ACCESSORIES, r.accessory) ? { accessory: oneOf(ACCESSORIES, r.accessory) } : {}),
   }
 }

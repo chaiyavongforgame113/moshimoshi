@@ -4,6 +4,18 @@ import { Basis, List, Note, P, Ph, Sub, tn } from './bits'
 import { LegalShell, type LegalSection } from './LegalShell'
 import { ADDRESS, COMPANY, EFFECTIVE, PRIVACY_EMAIL, lastUpdated } from './placeholders'
 
+/** A link to another site's policy (opens in a new tab). */
+function Ext({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="font-semibold underline decoration-ink/25 underline-offset-4 hover:decoration-ink">
+      {children}
+    </a>
+  )
+}
+
+const GOOGLE_PRIVACY = 'https://policies.google.com/privacy'
+const VIMEO_PRIVACY = 'https://vimeo.com/privacy'
+
 // Built while rendering (not at module load) so every clause reads in the current language.
 // <Note> points for the lawyer stay Thai: they only show in review mode.
 
@@ -106,6 +118,12 @@ const sections = (): LegalSection[] => [
               'Your interests, the ones you love most, your chat style, and conversation-starter questions with your answers',
             )}
           </li>
+          <li>
+            {t(
+              'ช่วงชีวิตของคุณ (ไม่เกิน 3 อย่าง เช่น เพิ่งย้ายมาเมืองนี้ เริ่มงานแรก ทำงานกะดึก หรือที่คุณพิมพ์เอง) ผู้ใช้ที่เข้าสู่ระบบแล้วเห็นได้เหมือนเรื่องที่สนใจ และเราใช้หาคนที่คลื่นตรงกัน',
+              'Your life stages (up to 3, such as just moved to the city, first jobber, working night shifts, or your own words). Signed-in users can see them like your interests, and we use them to find people on your wavelength',
+            )}
+          </li>
           <li>{t('การตั้งค่าว่าใครทักแชท (คำขอคุย) หาคุณได้บ้าง', 'Your settings for who can say hi to you (a chat request)')}</li>
         </List>
 
@@ -135,6 +153,30 @@ const sections = (): LegalSection[] => [
             )}
           </li>
           <li>{t('การกด “เหมือนกัน!” บนข้อความหรือคำตอบของคนอื่น', "Tapping “Same!” on other people's messages or answers")}</li>
+          <li>
+            {t(
+              'บัตรคลื่นที่คุณแชร์ ลิงก์บนบัตรเปิดให้ทุกคนที่มีลิงก์ (แม้ยังไม่ได้เข้าสู่ระบบ) เห็นชื่อและตัวโมชิของคุณเท่านั้น ส่วนการเทียบคลื่นแบบเต็มเห็นได้หลังเข้าสู่ระบบ ถ้าคุณเปิดลิงก์บัตรคลื่นของคนอื่น แอปจะจำไว้ในเบราว์เซอร์ของคุณไม่เกิน 1 วัน เพื่อพาคุณกลับมาที่หน้าเทียบคลื่นหลังสมัครเสร็จ',
+              "Wave cards you share. The link on a card lets anyone who has it (even before signing in) see only your name and your Mochi; the full wave comparison shows after signing in. If you open someone else's wave card link, the app remembers it in your browser for up to 1 day, to bring you back to the comparison after you sign up",
+            )}
+          </li>
+          <li>
+            {t(
+              'คำขอให้โมชิแนะนำ (ใครขอให้แนะนำใคร เมื่อไร และคำตอบ) คำขอจะหมดเวลาใน 3 วัน และเราลบคำขอที่ไม่ได้ตอบรับเมื่อครบ 90 วัน ถ้าคุณตอบ “ไว้ก่อนนะ” เราเก็บไว้ว่าคุณตอบแบบนั้น แต่จะไม่บอกคนที่ขอ และไม่ส่งคำขอจากเขาถึงคุณอีกภายใน 30 วัน',
+              "Requests for Mochi to make an introduction (who asked to be introduced to whom, when, and the answer). A request expires after 3 days, and we delete unaccepted requests after 90 days. If you answer “Maybe later”, we keep that answer, but we never tell the person who asked, and we don't pass their requests on to you again for 30 days",
+            )}
+          </li>
+          <li>
+            {t(
+              'คำตอบ “คำถามคู่” ในแชทที่โมชิแนะนำ (ไม่เกิน 300 ตัวอักษร) อีกฝ่ายจะเห็นคำตอบของคุณหลังจากเขาตอบคำถามเดียวกันแล้วเท่านั้น',
+              "Your answers to the “question pair” in a chat Mochi introduced (up to 300 characters). The other person sees your answer only after they have answered the same question",
+            )}
+          </li>
+          <li>
+            {t(
+              'การดูคลิปด้วยกันในห้อง: คลิปที่เปิดในห้อง (ลิงก์หรือรหัสวิดีโอ ชื่อคลิป ความยาว) ใครเป็นคนเปิด การกดเล่น หยุด หรือเลื่อน และการบอกว่าคุณกำลังดูอยู่ (อัปเดตทุก 30 วินาทีตอนเปิดดูอยู่ เราลบเมื่อคุณเลิกดูหรือไม่มีการอัปเดตเกิน 10 นาที)',
+              "Watching clips together in rooms: the clip put on in a room (its link or video ID, title and length), who put it on, plays, pauses and skips, and the signal that you're watching (updated every 30 seconds while you watch; we delete it when you stop watching or after 10 minutes without an update)",
+            )}
+          </li>
           <li>
             {t(
               'คำขอคุย (คำทักแชท) ข้อความทักแรก ข้อความแชท 1:1 สถานะการอ่าน และการกดยินยอมในบันไดความไว้ใจ',
@@ -191,8 +233,14 @@ const sections = (): LegalSection[] => [
         <Sub>{t('ข้อมูลที่เก็บบนเครื่องของคุณ', 'Data stored on your device')}</Sub>
         <P>
           {t(
-            'แอปเก็บข้อมูลบางอย่างไว้ในเบราว์เซอร์ของคุณ (local storage และแคชสำหรับใช้แบบออฟไลน์) เช่น รหัสยืนยันการเข้าสู่ระบบ และการตั้งค่าในแอป เพื่อให้คุณไม่ต้องเข้าสู่ระบบใหม่ทุกครั้ง ตอนนี้เราไม่ใช้คุกกี้หรือเครื่องมือติดตามเพื่อโฆษณาหรือวิเคราะห์พฤติกรรมจากบุคคลอื่น',
-            'The app keeps some data in your browser (local storage and a cache for offline use), such as your sign-in token and in-app settings, so you do not have to sign in again every time. We currently do not use cookies or third-party tracking tools for advertising or behavioral analytics.',
+            'แอปเก็บข้อมูลบางอย่างไว้ในเบราว์เซอร์ของคุณ (local storage และแคชสำหรับใช้แบบออฟไลน์) เช่น รหัสยืนยันการเข้าสู่ระบบ และการตั้งค่าในแอป เพื่อให้คุณไม่ต้องเข้าสู่ระบบใหม่ทุกครั้ง ตอนนี้เราเองไม่ใช้คุกกี้หรือเครื่องมือติดตามเพื่อโฆษณาหรือวิเคราะห์พฤติกรรม',
+            'The app keeps some data in your browser (local storage and a cache for offline use), such as your sign-in token and in-app settings, so you do not have to sign in again every time. We ourselves currently do not use cookies or tracking tools for advertising or behavioral analytics.',
+          )}
+        </P>
+        <P>
+          {t(
+            'ข้อยกเว้นเดียวคือการดูคลิปด้วยกันในห้อง: แอปจะถามคุณก่อนเปิดตัวเล่นของ YouTube หรือ Vimeo ครั้งแรก และเมื่อคุณตกลง บริการนั้นอาจตั้งคุกกี้หรือเก็บข้อมูลในเบราว์เซอร์ของคุณตามนโยบายของตัวเอง เราใช้โหมดเพิ่มความเป็นส่วนตัวของ YouTube (youtube-nocookie.com) และตั้งค่าไม่ให้ Vimeo ติดตามผู้ชม แต่ควบคุมสิ่งที่บริการเหล่านั้นทำไม่ได้ทั้งหมด',
+            'The one exception is watching clips together in a room: the app asks you before it first loads a YouTube or Vimeo player, and once you agree, that service may set cookies or store data in your browser under its own policies. We use YouTube’s privacy-enhanced mode (youtube-nocookie.com) and turn on Vimeo’s do-not-track setting, but we cannot fully control what those services do.',
           )}
         </P>
         <Note>ถ้าจะเพิ่มเครื่องมือวิเคราะห์หรือโฆษณาในอนาคต ต้องแก้ข้อนี้และอาจต้องมีแบนเนอร์ขอความยินยอมคุกกี้</Note>
@@ -355,6 +403,24 @@ const sections = (): LegalSection[] => [
               'Photos in a 1:1 chat can be seen only by you and the person you sent them to. Our team sees a photo only if someone reports it. If you delete a photo, or either of you blocks the other, they can no longer open it in the app, but they may already have saved it or taken a screenshot, which we cannot delete.',
             )}
           </li>
+          <li>
+            {t(
+              'ทุกคนที่มีลิงก์บัตรคลื่นของคุณเห็นชื่อและตัวโมชิของคุณ แม้ยังไม่ได้เข้าสู่ระบบ ยกเว้นตอนที่บัญชีของคุณถูกพักการใช้งาน',
+              'Anyone who has your wave card link can see your name and your Mochi, even before signing in, except while your account is suspended.',
+            )}
+          </li>
+          <li>
+            {t(
+              'คำขอให้โมชิแนะนำเห็นได้เฉพาะคนที่ขอและคนที่ถูกแนะนำ คนอื่นไม่เห็น และคนที่ขอจะไม่รู้ว่าคุณตอบ “ไว้ก่อนนะ” คำตอบคำถามคู่เห็นได้เฉพาะคนในแชทนั้น หลังจากตอบครบทั้งสองคน',
+              'Intro requests are visible only to the person who asked and the person being introduced, and the person who asked is never told if you answered “Maybe later”. Question pair answers are visible only to the people in that chat, once both have answered.',
+            )}
+          </li>
+          <li>
+            {t(
+              'คลิปที่ห้องกำลังดู และใครเป็นคนเปิด ผู้ใช้ที่เข้าสู่ระบบแล้วเห็นได้ ส่วนรายชื่อคนที่กำลังดูอยู่ตอนนี้ ผู้ใช้ที่เข้าสู่ระบบแล้วเห็นได้ ยกเว้นคนที่คุณบล็อกหรือบล็อกคุณ',
+              "The clip a room is watching, and who put it on, are visible to signed-in users. Who is watching right now is visible to signed-in users, except people you have blocked or who have blocked you.",
+            )}
+          </li>
           <li>{t('คนที่ถูกรายงานจะไม่รู้ว่าใครเป็นคนรายงาน', 'A person who is reported is not told who reported them.')}</li>
         </List>
         <Note>ผู้ที่เข้าแดชบอร์ด Supabase ของโปรเจกต์ได้ยังเปิดดูไฟล์รูปในแชทได้ทุกไฟล์ ควรจำกัดคนที่เข้าแดชบอร์ดได้ และเขียนไว้ในนโยบายภายในว่าทีมงานเปิดดูได้เฉพาะรูปที่ถูกรายงาน</Note>
@@ -397,6 +463,23 @@ const sections = (): LegalSection[] => [
             {t(
               'Google Fonts — เบราว์เซอร์ของคุณดาวน์โหลดฟอนต์จาก Google ทำให้ Google ได้รับ IP address และข้อมูลเบราว์เซอร์',
               'Google Fonts — your browser downloads fonts from Google, so Google receives your IP address and browser information',
+            )}
+          </li>
+          <li>
+            {tn(
+              <>
+                YouTube (Google) และ Vimeo — ตอนดูคลิปด้วยกันในห้อง เบราว์เซอร์ของคุณเปิดตัวเล่นของบริการนั้นโดยตรง ทำให้บริการได้รับ IP address ข้อมูลเบราว์เซอร์
+                และข้อมูลการดู และอาจใช้คุกกี้ตามนโยบายของตัวเอง แอปนี้ใช้ YouTube API Services ข้อมูลที่ YouTube ได้รับเป็นไปตาม
+                <Ext href={GOOGLE_PRIVACY}>นโยบายความเป็นส่วนตัวของ Google</Ext> และของ Vimeo เป็นไปตาม<Ext href={VIMEO_PRIVACY}>นโยบายความเป็นส่วนตัวของ Vimeo</Ext>{' '}
+                ส่วนคลิปที่เป็นลิงก์ไฟล์ .mp4 หรือ .webm เบราว์เซอร์จะโหลดจากเว็บไซต์เจ้าของไฟล์โดยตรง
+              </>,
+              <>
+                YouTube (Google) and Vimeo — when you watch a clip together in a room, your browser loads that service's own player directly, so the service
+                receives your IP address, browser information and viewing data, and may use cookies under its own policies. This app uses YouTube API Services:
+                what YouTube receives is covered by the <Ext href={GOOGLE_PRIVACY}>Google Privacy Policy</Ext>, and what Vimeo receives by the{' '}
+                <Ext href={VIMEO_PRIVACY}>Vimeo Privacy Policy</Ext>. For a clip that is a link to an .mp4 or .webm file, your browser loads it directly from the
+                site that hosts the file
+              </>,
             )}
           </li>
         </List>

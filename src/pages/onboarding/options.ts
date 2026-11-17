@@ -21,6 +21,7 @@ import {
 import type { MochiAccessory, MochiExpression } from '@/components/three'
 import { tagOf } from '@/data/tags'
 import { L, loc, t } from '@/lib/i18n'
+import { LIFE_STAGE_MAX, lifeStageLabel } from '@/lib/lifeStages'
 import type { IntentTemplate, MochiColor, OnlineSlot } from '@/lib/types'
 import { MAX_LOVES, MAX_STYLES, MIN_TAGS, STORY_MIN, textLength, type Draft, type ScreenKey } from './model'
 
@@ -34,6 +35,7 @@ const SCREEN_LABELS: ScreenLabel[] = [
   loc<ScreenLabel>({ key: 'loves', label: L('เรื่องที่รักมาก', 'Favorites') }),
   loc<ScreenLabel>({ key: 'intent', label: L('มาที่นี่เพื่อ…', 'Here for…') }),
   loc<ScreenLabel>({ key: 'topic', label: L('อยากคุยเรื่องไหน', 'Topic') }),
+  loc<ScreenLabel>({ key: 'life', label: L('ช่วงชีวิต', 'Life stage') }),
   loc<ScreenLabel>({ key: 'online', label: L('ออนไลน์ช่วงไหน', 'Online times') }),
   loc<ScreenLabel>({ key: 'style', label: L('สไตล์การคุย', 'Chat style') }),
   loc<ScreenLabel>({ key: 'story', label: L('เรื่องเล่า', 'A little story') }),
@@ -232,6 +234,15 @@ export function mascotLine(screen: ScreenKey, d: Draft): MascotLine {
         sub: t('เลือกจากเรื่องที่ชอบมา 1 เรื่อง', 'Pick one of your interests'),
         face: 'talk',
       }
+    case 'life':
+      return {
+        line: t('ช่วงนี้ชีวิตเป็นยังไงบ้าง?', "What's life like for you lately?"),
+        sub: t(
+          `เลือกได้ไม่เกิน ${LIFE_STAGE_MAX} อย่าง คนที่อยู่ช่วงเดียวกันจะเข้าใจกันง่าย`,
+          `Pick up to ${LIFE_STAGE_MAX}. People in the same season of life just get each other`,
+        ),
+        face: 'smile',
+      }
     case 'online':
       return {
         line: t('ปกติออนไลน์ช่วงไหน?', 'When are you usually online?'),
@@ -265,6 +276,15 @@ export function mascotLine(screen: ScreenKey, d: Draft): MascotLine {
   }
 }
 
+/** น้องโมชิ's reply to a life stage they just picked (the rest get a general one). */
+const LIFE_REACTION: Record<string, () => string> = {
+  'เพิ่งย้ายมาเมืองนี้': () => t('เมืองใหม่ เพื่อนใหม่ เดี๋ยวพาไปรู้จักคนที่เพิ่งย้ายมาเหมือนกันนะ', "New city, new friends! I'll introduce you to others who just moved too"),
+  'เริ่มงานแรก': () => t('งานแรกตื่นเต้นเนอะ มีเพื่อนวัยเดียวกันคุยด้วยอุ่นใจกว่าเยอะ', 'A first job is exciting! It helps to have friends going through it too'),
+  'ทำงานกะดึก': () => t('ชาวกะดึกมีเยอะกว่าที่คิดนะ ตีสองก็มีคนคุยด้วย', "There are more night-shift folks than you'd think. Someone's up at 2 am too"),
+  'อยู่คนเดียวครั้งแรก': () => t('อยู่คนเดียวครั้งแรก เหงาได้ แต่ไม่ต้องเหงาคนเดียวนะ', "Living alone for the first time can get lonely. You don't have to be lonely alone"),
+  'พ่อแม่มือใหม่': () => t('เก่งมากเลย! เดี๋ยวหาเพื่อนพ่อแม่มือใหม่มาแชร์กันนะ', "You're doing great! I'll find other new parents to swap stories with"),
+}
+
 /** A follow-up chat bubble that reacts to what the visitor just did. */
 export function mascotReaction(screen: ScreenKey, d: Draft, ctx: { settledName: string; settledStory: string; lookChanged: boolean }): string | null {
   switch (screen) {
@@ -293,6 +313,12 @@ export function mascotReaction(screen: ScreenKey, d: Draft, ctx: { settledName: 
     case 'topic': {
       const topic = d.intentTag ? tagOf(d.intentTag) : undefined
       return topic ? t(`${topic.label} เหรอ คุยกันได้ยาวๆ เลย!`, `${topic.label}? We could talk for hours!`) : null
+    }
+    case 'life': {
+      const last = d.lifeStages[d.lifeStages.length - 1]
+      if (!last) return null
+      const said = LIFE_REACTION[last]
+      return said ? said() : t(`"${lifeStageLabel(last)}" เหรอ เดี๋ยวโมชิหาเพื่อนที่อยู่ช่วงเดียวกันให้นะ`, `"${lifeStageLabel(last)}"? I'll find friends in the same season of life`)
     }
     case 'online':
       return d.online.length ? t('จดไว้แล้ว เดี๋ยวหาเพื่อนที่ว่างตรงกันให้นะ', "Noted! I'll find friends who are around when you are") : null

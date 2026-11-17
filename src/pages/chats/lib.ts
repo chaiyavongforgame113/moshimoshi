@@ -64,6 +64,7 @@ const OLD_LINES: Record<string, string> = {
 export function previewText(chat: Chat, isMine: (id: string) => boolean = (id) => id === 'me'): string {
   const m = lastMessage(chat)
   if (!m) return t('ยังไม่มีข้อความ ทักก่อนเลย', 'No messages yet. Say hi first!')
+  if (m.kind === 'mochi') return t(`โมชิ: ${systemText(m.text)}`, `Mochi: ${systemText(m.text)}`)
   if (m.kind === 'system' || m.userId === 'system') return systemText(m.text)
   if (m.kind === 'image') return isMine(m.userId) ? t('เรา: 📷 รูปภาพ', 'You: 📷 Photo') : t('📷 ส่งรูปมา', '📷 Sent a photo')
   return isMine(m.userId) ? t(`เรา: ${m.text}`, `You: ${m.text}`) : m.text

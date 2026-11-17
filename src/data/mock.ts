@@ -1,5 +1,5 @@
 import { L, loc, type Txt } from '@/lib/i18n'
-import type { Chat, ChatMessage, DailyQuestion, Intent, Room, Session, User, WaveAnswers, WaveChoice } from '@/lib/types'
+import type { Chat, ChatMessage, DailyQuestion, Intent, IntroRequest, Room, RoomWatch, Session, User, WaveAnswers, WaveChoice } from '@/lib/types'
 import { dayOffset, hhmm, messageTime } from './live/time'
 import { WAVE_IDS } from './wave'
 
@@ -137,6 +137,7 @@ export const USERS: User[] = [
     online: ['evening', 'late'],
     rooms: ['anime', 'lobby', 'cowork'],
     languages: ['ไทย', 'อังกฤษ'],
+    lifeStages: ['ฟรีแลนซ์'],
     isHost: true,
     lastActive: 'ออนไลน์อยู่',
     isOnline: true,
@@ -158,6 +159,7 @@ export const USERS: User[] = [
     online: ['late'],
     rooms: ['game-night', 'lobby'],
     languages: ['ไทย'],
+    lifeStages: ['ทำงานกะดึก'],
     isHost: true,
     lastActive: 'ออนไลน์อยู่',
     isOnline: true,
@@ -179,6 +181,7 @@ export const USERS: User[] = [
     online: ['evening'],
     rooms: ['moved-bkk', 'lobby', 'music'],
     languages: ['ไทย', 'อังกฤษ'],
+    lifeStages: ['เพิ่งย้ายมาเมืองนี้', 'เริ่มงานแรก'],
     isHost: true,
     lastActive: '5 นาทีที่แล้ว',
     isOnline: true,
@@ -200,6 +203,7 @@ export const USERS: User[] = [
     online: ['morning', 'evening'],
     rooms: ['moved-bkk', 'lobby'],
     languages: ['ไทย'],
+    lifeStages: ['เพิ่งย้ายมาเมืองนี้', 'อยู่คนเดียวครั้งแรก'],
     isHost: true,
     lastActive: 'ออนไลน์อยู่',
     isOnline: true,
@@ -221,6 +225,7 @@ export const USERS: User[] = [
     online: ['evening', 'late'],
     rooms: ['listen', 'lobby'],
     languages: ['ไทย'],
+    lifeStages: ['ทำงานที่บ้าน'],
     isHost: true,
     lastActive: 'ออนไลน์อยู่',
     isOnline: true,
@@ -242,6 +247,7 @@ export const USERS: User[] = [
     online: ['afternoon', 'evening'],
     rooms: ['cowork', 'game-night'],
     languages: ['ไทย', 'อังกฤษ'],
+    lifeStages: ['นักศึกษา'],
     isHost: true,
     lastActive: '20 นาทีที่แล้ว',
     isOnline: false,
@@ -263,6 +269,7 @@ export const USERS: User[] = [
     online: ['evening'],
     rooms: ['lang', 'moved-bkk'],
     languages: ['ญี่ปุ่น', 'ไทย', 'อังกฤษ'],
+    lifeStages: ['เพิ่งกลับจากต่างประเทศ'],
     isHost: true,
     lastActive: 'ออนไลน์อยู่',
     isOnline: true,
@@ -284,6 +291,7 @@ export const USERS: User[] = [
     online: ['evening', 'late'],
     rooms: ['music', 'lobby'],
     languages: ['ไทย', 'เกาหลีนิดหน่อย'],
+    lifeStages: ['เพิ่งเปลี่ยนงาน'],
     isHost: true,
     lastActive: 'ออนไลน์อยู่',
     isOnline: true,
@@ -379,6 +387,7 @@ export const USERS: User[] = [
     online: ['late'],
     rooms: ['listen', 'lobby'],
     languages: ['ไทย'],
+    lifeStages: ['เริ่มงานแรก', 'ทำงานที่บ้าน'],
     lastActive: '3 นาทีที่แล้ว',
     isOnline: true,
   },
@@ -396,6 +405,7 @@ export const USERS: User[] = [
     online: ['morning', 'afternoon'],
     rooms: ['moved-bkk', 'lobby'],
     languages: ['ไทย'],
+    lifeStages: ['เพิ่งย้ายมาเมืองนี้'],
     lastActive: '40 นาทีที่แล้ว',
     isOnline: false,
   },
@@ -825,3 +835,44 @@ function demoPick(userId: string, questionId: string): WaveChoice {
 export const WAVE_ANSWERS: Record<string, WaveAnswers> = Object.fromEntries(
   USERS.map((u) => [u.id, Object.fromEntries(WAVE_IDS.map((id) => [id, demoPick(u.id, id)]))]),
 )
+
+// ------------------------------------------------------------------
+// Watching together (demo: local only). The co-working room has a short film on, as if someone
+// put it on two minutes before the page loaded. (The study stream it used to show refuses to play
+// inside other sites, so demo visitors only saw "the owner doesn't allow this clip outside YouTube".)
+// ------------------------------------------------------------------
+export const DEMO_ROOM_WATCH: Record<string, RoomWatch> = {
+  cowork: {
+    roomId: 'cowork',
+    provider: 'youtube',
+    ref: 'aqz-KE-bpKQ',
+    title: 'Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film',
+    isLive: false,
+    playing: true,
+    positionS: 0,
+    positionAt: LOADED - 2 * MIN,
+    rate: 1,
+    startedBy: 'u-nat',
+    startedAt: LOADED - 2 * MIN,
+    anyoneCanControl: false,
+    updatedBy: 'u-nat',
+    version: 1,
+  },
+}
+
+// ------------------------------------------------------------------
+// Mochi's warm intros (demo): someone asked Mochi to introduce them to me a couple of hours before
+// the page loaded. Intros I ask for are answered by the simulated person after a few seconds.
+// ------------------------------------------------------------------
+export const DEMO_INTROS: IntroRequest[] = [
+  {
+    id: 'intro-fah',
+    fromUserId: 'u-fah',
+    toUserId: 'me',
+    direction: 'incoming',
+    withUserId: 'u-fah',
+    status: 'pending',
+    createdAt: new Date(LOADED - 2 * 60 * MIN).toISOString(),
+    expiresAt: new Date(LOADED - 2 * 60 * MIN + 3 * DAY).toISOString(),
+  },
+]

@@ -97,6 +97,12 @@ export interface User {
   online: OnlineSlot[]
   rooms: string[]
   languages: string[]
+  /**
+   * "ช่วงชีวิต": up to 3 (LIFE_STAGE_MAX in lib/lifeStages). Stored in Thai: the list's values, or
+   * what they typed themselves ("อื่นๆ"); show them with lifeStageLabel(). Absent before
+   * profiles.life_stages exists (20261117000001_lifestage_intro_watch.sql).
+   */
+  lifeStages?: string[]
   isHost?: boolean
   /** e.g. "ออนไลน์อยู่", "15 นาทีที่แล้ว" */
   lastActive: string
@@ -175,6 +181,14 @@ export interface ServerFeatures {
   events: boolean
   /** "จูนคลื่น" picks shared with everyone (20261114000002_wave_quiz.sql); off: they stay on this device */
   waveQuiz: boolean
+  /** profiles.life_stages (20261117000001_lifestage_intro_watch.sql); off: hide the life stage editor */
+  lifeStages: boolean
+  /** Mochi's warm intros + the question pair (same file); off: hide "ให้โมชิแนะนำให้" */
+  intros: boolean
+  /** watching clips together in rooms (same file); off: hide the watch panel */
+  watch: boolean
+  /** wave_card_preview (same file): the teaser a shared wave card's link opens; off: no wave card to share */
+  waveCard: boolean
 }
 
 export interface DailyAnswer {
@@ -210,7 +224,8 @@ export interface ChatMessage {
   text: string
   /** display time, e.g. "21:04" */
   at: string
-  kind?: 'text' | 'system' | 'welcome' | 'image'
+  /** 'mochi': one of Mochi's lines in an intro chat (userId 'system'; see mochiStep in data/pairQuestions) */
+  kind?: 'text' | 'system' | 'welcome' | 'image' | 'mochi'
   /** kind 'image' only */
   image?: ChatImage
   sameBy?: string[]
@@ -238,11 +253,137 @@ export interface Chat {
   requestedBy?: string
   /** บันไดความไว้ใจ ขั้น 2: who said yes to photos (both = unlocked) */
   consent?: { me: boolean; them: boolean }
+  /** 'intro': opened by Mochi's warm intro (a 3-person feel: Mochi's lines, the question pair) */
+  kind?: 'hello' | 'intro'
+  /** intro chats: the question pair's question id (PAIR_QUESTIONS in data/pairQuestions) */
+  pairQuestion?: string
+}
+
+// ------------------------------------------------------------------ Mochi's warm intros
+
+/** pending = waiting for their answer · accepted = the chat is open · expired = the time ran out */
+export type IntroStatus = 'pending' | 'accepted' | 'expired'
+
+/**
+ * "ให้โมชิแนะนำให้": someone asked Mochi to introduce two people. Double opt-in: the person asked
+ * says "ยินดีรู้จัก" (the 1:1 chat opens with Mochi's lines) or "ไว้ก่อนนะ" (silent for the asker:
+ * theirs just waits until it expires, never "rejected").
+ */
+export interface IntroRequest {
+  id: string
+  /** who asked Mochi */
+  fromUserId: string
+  /** who Mochi asks */
+  toUserId: string
+  /** incoming = someone asked Mochi about me (I answer) · outgoing = I asked */
+  direction: 'incoming' | 'outgoing'
+  /** the other person (fromUserId for incoming, toUserId for outgoing) */
+  withUserId: string
+  /** 'expired' as soon as expiresAt passes (the server catches up within the hour) */
+  status: IntroStatus
+  /** ISO */
+  createdAt: string
+  /** ISO: 3 days after createdAt */
+  expiresAt: string
+  /** accepted: the chat Mochi opened */
+  chatId?: string
+}
+
+/** One question of the question pair (both answer privately; answers open when both have). */
+export interface PairQuestion {
+  /** stable slug, stored with the answers */
+  id: string
+  /** in the current language */
+  text: string
+  /** a short example under the answer box, in the current language */
+  hint: string
+}
+
+export interface PairAnswer {
+  chatId: string
+  userId: string
+  questionId: string
+  text: string
+  /** ISO */
+  at: string
+}
+
+/** Where an intro chat's question pair is for me. */
+export interface PairState {
+  /** undefined: this chat has no question pair */
+  question?: PairQuestion
+  mine?: PairAnswer
+  /** only once both answered (the server holds it back until then) */
+  theirs?: PairAnswer
+  /** none = no question · ask = my turn · waiting = I answered, they haven't · revealed = both answered */
+  step: 'none' | 'ask' | 'waiting' | 'revealed'
+}
+
+// ------------------------------------------------------------------ watching clips together in rooms
+
+/** youtube: an 11-character video id · vimeo: a numeric video id · file: an https .mp4 / .webm link */
+export type WatchProvider = 'youtube' | 'vimeo' | 'file'
+
+/** What a pasted link turned into (parseVideoUrl in data/watch). */
+export interface VideoPick {
+  provider: WatchProvider
+  /** the video id (youtube / vimeo) or the https link (file) */
+  ref: string
+  title?: string
+  /** seconds, when known */
+  durationS?: number
+  /** a live stream: everyone watches the live edge, positions aren't synced */
+  isLive?: boolean
+  /** where to start (a ?t= in the link), seconds */
+  startS?: number
+}
+
+export type WatchAction = 'play' | 'pause' | 'seek' | 'rate'
+
+/**
+ * A room's clip as the server holds it. The position is positionS at the server moment positionAt
+ * (ms since epoch; may be up to a second ahead: the clip starts then). Work out where it is with
+ * watchPositionAt(watch, serverNow()) from data/watch, never from Date.now() alone.
+ */
+export interface RoomWatch {
+  roomId: string
+  provider: WatchProvider
+  ref: string
+  title?: string
+  durationS?: number
+  isLive: boolean
+  playing: boolean
+  positionS: number
+  /** server time, ms since epoch */
+  positionAt: number
+  /** 0.25–2 */
+  rate: number
+  startedBy?: string
+  /** server time, ms */
+  startedAt?: number
+  /** a host switched on "ให้ทุกคนคุมได้" */
+  anyoneCanControl: boolean
+  updatedBy?: string
+  /** server time, ms: the last play / pause / move / switch (a player's length report doesn't count) */
+  updatedAt?: number
+  /** grows with every change: ignore a state older than the one shown */
+  version: number
+}
+
+// ------------------------------------------------------------------ wave cards
+
+/** What anyone with a wave card's link sees before signing in (wave_card_preview): nothing else. */
+export interface ComparePreview {
+  userId: string
+  name: string
+  color: MochiColor
+  face?: User['face']
+  accessory?: User['accessory']
 }
 
 export type SignalLevel = 1 | 2 | 3 | 4 | 5
 
-export type MatchReasonKind = 'rareTag' | 'tag' | 'intent' | 'swap' | 'prompt' | 'time' | 'room' | 'style' | 'quiz'
+export type MatchReasonKind = 'rareTag' | 'tag' | 'intent' | 'swap' | 'prompt' | 'time' | 'room' | 'style' | 'quiz' | 'lifeStage'
 
 export interface MatchReason {
   kind: MatchReasonKind
@@ -267,6 +408,8 @@ export interface MatchBreakdown {
   interests: number
   /** "จูนคลื่น" this-or-that picks in common (left out of the score until both have played) */
   quiz: number
+  /** "ช่วงชีวิต" in common (left out of the score unless both have one in common; see matching.ts) */
+  lifeStage: number
   /** similar answers to profile prompts */
   story: number
   /** online at the same times of day */

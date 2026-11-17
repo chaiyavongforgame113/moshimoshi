@@ -8,10 +8,13 @@ import {
   putChatMessage,
   putChatSame,
   putEventMessage,
+  putIntro,
   putJoin,
   putMember,
   putMessageSame,
+  putPairAnswer,
   putPromptSame,
+  putRoomWatch,
   putRsvp,
   putWave,
   type Cache,
@@ -27,13 +30,16 @@ import type {
   EventMessageRow,
   IntentJoinRow,
   IntentRow,
+  IntroRequestRow,
   MessageSameRow,
+  PairAnswerRow,
   ProfileRow,
   PromptSameRow,
   QuestionRow,
   RoomMemberRow,
   RoomMessageRow,
   RoomRow,
+  RoomWatchRow,
   RsvpRow,
   SessionRow,
   WaveAnswerRow,
@@ -58,6 +64,8 @@ const SESSIONS_AHEAD_MS = 61 * 86_400_000
 const CHUNK = 80
 /** the API's default cap on rows per response (anything past it is dropped silently) */
 const PAGE = 1000
+/** intro requests loaded at sign-in: made up to this long ago (they expire after 3 days) */
+const INTROS_BACK_MS = 30 * 86_400_000
 
 async function rows<T>(req: Res): Promise<T[]> {
   const { data, error } = await req
@@ -135,7 +143,7 @@ export async function loadAll(c: Cache): Promise<void> {
   const chatIds = myChats.map((m) => m.chat_id)
   const myRooms = myMemberships.map((m) => m.room_id)
 
-  const [joins, rsvps, answers, answerSames, chats, chatMembers, chatMsgs, promptSames, events, wave] = await Promise.all([
+  const [joins, rsvps, answers, answerSames, chats, chatMembers, chatMsgs, promptSames, events, wave, intros, watch, waveCards] = await Promise.all([
     inChunksAll<IntentJoinRow>(intentIds, (s, from, to) =>
       q.from('intent_joins').select('intent_id,user_id').in('intent_id', s).order('intent_id').order('user_id').range(from, to),
     ),
@@ -161,6 +169,9 @@ export async function loadAll(c: Cache): Promise<void> {
     loadPromptSames(),
     hasEventChats(),
     loadWave([c.me, ...profiles.map((p) => p.id)]),
+    loadIntros(),
+    loadRoomWatchAll(),
+    hasWaveCards(c.me),
     ...myRooms.map((r) => loadRoomHistory(c, r)),
   ])
 
@@ -176,9 +187,20 @@ export async function loadAll(c: Cache): Promise<void> {
   features.events = events
   wave?.forEach((r) => putWave(c, r, true))
   features.waveQuiz = !!wave
+  // the column comes back with every profile once it exists ('{}' when empty)
+  features.lifeStages = profiles.some((p) => 'life_stages' in p)
+  intros?.forEach((r) => putIntro(c, r, true))
+  features.intros = !!intros
+  watch?.forEach((r) => putRoomWatch(c, r))
+  features.watch = !!watch
+  features.waveCard = waveCards
 
   const msgIds = chatMsgs.map((m) => m.id)
-  const sames = await inChunks<ChatSameRow>(msgIds, (s) => q.from('chat_message_sames').select('id,message_id,user_id').in('message_id', s))
+  const introChats = chats.filter((ch) => ch.kind === 'intro').map((ch) => ch.id)
+  const [sames] = await Promise.all([
+    inChunks<ChatSameRow>(msgIds, (s) => q.from('chat_message_sames').select('id,message_id,user_id').in('message_id', s)),
+    features.intros ? loadPairAnswers(c, introChats) : Promise.resolve([]),
+  ])
   sames.forEach((s) => putChatSame(c, s, true))
 
   // people I chat with, post authors, answerers and who joined my posts may be outside the
@@ -190,7 +212,79 @@ export async function loadAll(c: Cache): Promise<void> {
     ...answers.map((a) => a.user_id),
     ...joins.filter((j) => mine.has(j.intent_id)).map((j) => j.user_id),
     ...(promptSames ?? []).filter((r) => r.profile_id === c.me).map((r) => r.user_id),
+    ...(intros ?? []).map((r) => (r.from_user === c.me ? r.to_user : r.from_user)),
   ])
+}
+
+/**
+ * "ให้โมชิแนะนำให้" requests I asked for or that are about me, from the last 30 days. undefined:
+ * intro_requests isn't there yet (20261117000001_lifestage_intro_watch.sql), so intros stay off.
+ */
+async function loadIntros(): Promise<IntroRequestRow[] | undefined> {
+  try {
+    return await rows<IntroRequestRow>(
+      db()
+        .from('intro_requests')
+        .select('*')
+        .gte('created_at', new Date(Date.now() - INTROS_BACK_MS).toISOString())
+        .order('created_at', { ascending: false })
+        .limit(300),
+    )
+  } catch (err) {
+    if (!missingTable(err)) throw err
+    console.info('[moshi] intros are off until 20261117000001_lifestage_intro_watch.sql runs', err)
+    return undefined
+  }
+}
+
+/** Intro requests by id, as the server has them now (after a request or an answer). */
+export async function loadIntrosById(c: Cache, ids: string[]): Promise<IntroRequestRow[]> {
+  const wanted = [...new Set(ids)].filter(isServerId)
+  if (!wanted.length) return []
+  const found = await inChunks<IntroRequestRow>(wanted, (s) => db().from('intro_requests').select('*').in('id', s))
+  found.forEach((r) => putIntro(c, r, true))
+  // one RLS hides now (set aside, a block) is gone for me
+  wanted.filter((id) => !found.some((r) => r.id === id)).forEach((id) => c.intros.delete(id))
+  await ensureProfiles(
+    c,
+    found.map((r) => (r.from_user === c.me ? r.to_user : r.from_user)),
+  )
+  return found
+}
+
+/** The question pair answers I can see in these chats (mine; theirs once I answered too). */
+export async function loadPairAnswers(c: Cache, chatIds: string[]): Promise<PairAnswerRow[]> {
+  const ids = [...new Set(chatIds)].filter(isServerId)
+  if (!ids.length) return []
+  const list = await inChunks<PairAnswerRow>(ids, (s) => db().from('chat_pair_answers').select('*').in('chat_id', s).order('created_at'))
+  // a fresh copy for these chats
+  ids.forEach((id) => {
+    c.pairAnswers.get(id)?.forEach((_, aid) => c.pairChat.delete(aid))
+    c.pairAnswers.delete(id)
+  })
+  list.forEach((r) => putPairAnswer(c, r))
+  return list
+}
+
+/**
+ * Every room's clip (one row per room, so a small read). undefined: room_watch isn't there yet
+ * (20261117000001_lifestage_intro_watch.sql), so watching together stays off.
+ */
+export async function loadRoomWatchAll(): Promise<RoomWatchRow[] | undefined> {
+  try {
+    return await allRows<RoomWatchRow>((from, to) => db().from('room_watch').select('*').order('room_id').range(from, to))
+  } catch (err) {
+    if (!missingTable(err)) throw err
+    console.info('[moshi] watching together is off until 20261117000001_lifestage_intro_watch.sql runs', err)
+    return undefined
+  }
+}
+
+/** One room's clip as the server has it now (null: the room never had one). */
+export async function loadRoomWatch(c: Cache, roomId: string): Promise<RoomWatchRow | null> {
+  const list = await rows<RoomWatchRow>(db().from('room_watch').select('*').eq('room_id', roomId).limit(1))
+  if (list[0]) putRoomWatch(c, list[0])
+  return list[0] ?? null
 }
 
 /**
@@ -212,6 +306,23 @@ async function loadPromptSames(): Promise<PromptSameRow[] | undefined> {
 function missingTable(err: unknown): boolean {
   const code = (err as { code?: string } | null)?.code
   return code === 'PGRST205' || code === '42P01'
+}
+
+/**
+ * Is wave_card_preview() there (20261117000001_lifestage_intro_watch.sql)? Asked about me (my own
+ * teaser): until it is, a shared card's link couldn't open for anyone signed out, so there's no card.
+ */
+async function hasWaveCards(me: string): Promise<boolean> {
+  try {
+    await rows(db().rpc('wave_card_preview', { p_user: me }))
+    return true
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code
+    // no such function (PostgREST's schema cache, or Postgres itself)
+    if (code !== 'PGRST202' && code !== '42883') throw err
+    console.info('[moshi] wave cards are off until 20261117000001_lifestage_intro_watch.sql runs', err)
+    return false
+  }
 }
 
 /** Is event_messages there (20261114000001_room_events.sql)? It comes with the new sessions columns. */

@@ -68,6 +68,9 @@ export function toOpener(icebreaker: string, name: string): { text: string; from
       text: t(`เห็นโพสต์ "${post[1]}" แล้วสนใจมากเลย ยังหาอยู่ไหม?`, `Saw your post "${post[1]}" and I'm really interested. Still looking?`),
       from: t('จากโพสต์ชวนเล่นของเขา', 'From their invite'),
     }
+  // the same stage of life (buildIcebreakers in lib/matching): already ready to send as it is
+  if (/^".+" เหมือนกันเลย ช่วงนี้เป็นยังไงบ้าง\?$/.test(icebreaker) || /^".+" here too! How's it going for you\?$/.test(icebreaker))
+    return { text: icebreaker, from: t('จากช่วงชีวิตเดียวกัน', 'From the same stage of life') }
   const safeName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const story =
     icebreaker.match(new RegExp(`^${safeName}บอกว่า "(.+)" ลองถามต่อดูสิ`)) ?? icebreaker.match(new RegExp(`^${safeName} said "(.+)"\\. Ask them more`))

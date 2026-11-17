@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { isLive } from '@/lib/supabase'
-import type { ChatMessage, DailyQuestion, Intent, Room, ServerFeatures, Session, User, WaveAnswers } from '@/lib/types'
-import { DAILY_QUESTIONS, EVENT_MESSAGES, INTENTS, ROOM_MESSAGES, ROOMS, SESSIONS, USERS, WAVE_ANSWERS } from './mock'
+import type { ChatMessage, DailyQuestion, Intent, Room, RoomWatch, ServerFeatures, Session, User, WaveAnswers } from '@/lib/types'
+import { DAILY_QUESTIONS, DEMO_ROOM_WATCH, EVENT_MESSAGES, INTENTS, ROOM_MESSAGES, ROOMS, SESSIONS, USERS, WAVE_ANSWERS } from './mock'
 
 /**
  * Shared, read-mostly data that comes from the server in live mode
@@ -43,6 +43,10 @@ export interface CatalogData {
   eventMessages: Record<string, ChatMessage[]>
   /** other people's "จูนคลื่น" picks by user id (mine live in useMoshi.wave) */
   waveAnswers: Record<string, WaveAnswers>
+  /** rooms' clips that are on, by room id (rooms with nothing on aren't listed). Demo: local only */
+  roomWatch: Record<string, RoomWatch>
+  /** room id → a host switched on "ให้ทุกคนคุมได้" (kept while nothing is on, too) */
+  roomWatchOpen: Record<string, boolean>
   /** server pieces from newer migrations (live: switched on by the first load that finds them; demo: all on) */
   features: ServerFeatures
 }
@@ -67,7 +71,9 @@ const DEMO: CatalogData = {
   storySames: {},
   eventMessages: EVENT_MESSAGES,
   waveAnswers: WAVE_ANSWERS,
-  features: { events: true, waveQuiz: true },
+  roomWatch: DEMO_ROOM_WATCH,
+  roomWatchOpen: {},
+  features: { events: true, waveQuiz: true, lifeStages: true, intros: true, watch: true, waveCard: true },
 }
 
 /** live mode starts empty and fills in after sign-in */
@@ -87,7 +93,9 @@ export const LIVE_EMPTY: CatalogData = {
   storySames: {},
   eventMessages: {},
   waveAnswers: {},
-  features: { events: false, waveQuiz: false },
+  roomWatch: {},
+  roomWatchOpen: {},
+  features: { events: false, waveQuiz: false, lifeStages: false, intros: false, watch: false, waveCard: false },
 }
 
 export const useCatalog = create<CatalogState>()((set) => ({

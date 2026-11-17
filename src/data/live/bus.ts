@@ -55,12 +55,15 @@ export const unblocking = new Set<string>()
  * stays on this device and sync sends it again after the next reload or reconnect.
  */
 export const pendingWave = new Map<string, { choice: number; waiting?: boolean }>()
+/** my question pair answer per chat while its insert is out (shown over the server's copy meanwhile) */
+export const pendingPair = new Map<string, { questionId: string; text: string; at: string }>()
 
 export function clearPending() {
   pendingConsent.clear()
   unsending.clear()
   unblocking.clear()
   pendingWave.clear()
+  pendingPair.clear()
 }
 
 // A full reload, the same one a reconnect runs. Sync registers it while a session is live; e.g. an

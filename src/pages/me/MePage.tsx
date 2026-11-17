@@ -3,8 +3,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { KineticText, Reveal } from '@/components/motion'
 import { IconButton, PageHeader } from '@/components/ui'
-import { useDataMode, useDataReady } from '@/data/hooks'
+import { useDataMode, useDataReady, useServerFeatures } from '@/data/hooks'
 import { t } from '@/lib/i18n'
+import { WaveCardEntry } from '@/pages/compare/WaveCardEntry'
 import { PageSkeleton } from '@/pages/people/Skeleton'
 import { Account } from './Account'
 import { EditSheets, type EditKind } from './EditSheets'
@@ -37,6 +38,8 @@ export default function MePage() {
   const open = useCallback((kind: EditKind, step = 0) => setEdit({ kind, step }), [])
   const closeEdit = useCallback(() => setEdit(null), [])
   const live = useDataMode() === 'live'
+  // a shared card's link opens signed out only once wave_card_preview is on the server
+  const waveCards = useServerFeatures().waveCard
   const ready = useDataReady()
   if (!ready) return <PageSkeleton label={t('กำลังโหลดโปรไฟล์ของเรา…', 'Loading your profile…')} />
   return (
@@ -54,6 +57,12 @@ export default function MePage() {
       <Reveal>
         <WaveClarity onEdit={open} />
       </Reveal>
+      {/* "บัตรคลื่นของฉัน": my wave archetype, shared as an image + a link friends open to compare waves */}
+      {waveCards && (
+        <Reveal>
+          <WaveCardEntry />
+        </Reveal>
+      )}
       <Reveal>
         <MyTags onEdit={() => open('tags')} />
       </Reveal>

@@ -4,6 +4,16 @@ import { useId, useState } from 'react'
 import { Avatar, Button, Chip, leaveField, OwnOption, Sheet, Wizard } from '@/components/ui'
 import { CHAT_STYLES, chatStyleLabel, hasChatStyle, isAllDay, ONLINE_LABEL, OWN_STYLE_MAX, ownChatStyle } from '@/data/tags'
 import { displayName, t } from '@/lib/i18n'
+import {
+  isListedLifeStage,
+  LIFE_STAGE_MAX,
+  LIFE_STAGE_TEXT_MAX,
+  LIFE_STAGES,
+  lifeStageEmoji,
+  lifeStageLabel,
+  normalizeLifeStages,
+  sharedLifeStages,
+} from '@/lib/lifeStages'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import type { MochiColor, OnlineSlot } from '@/lib/types'
@@ -13,7 +23,7 @@ import { ColorSwatches } from './ColorSwatches'
 import { StoriesWizard } from './StoriesWizard'
 import { TagsWizard } from './TagsWizard'
 
-export type EditKind = 'basics' | 'tags' | 'stories' | 'online' | 'style'
+export type EditKind = 'basics' | 'tags' | 'stories' | 'life' | 'online' | 'style'
 
 const field =
   'mt-1.5 block w-full rounded-2xl border border-line bg-white px-4 py-3 text-ink shadow-[inset_0_2px_4px_rgb(59_38_34/0.04)] placeholder:text-ink-faint focus:border-lavender'
@@ -37,6 +47,9 @@ export function EditSheets({ open, step = 0, onClose }: { open: EditKind | null;
       </Sheet>
       <Sheet open={open === 'stories'} onClose={onClose} title={t('เรื่องเล่าของเรา', 'My stories')} width={580}>
         <StoriesWizard start={step} onDone={onClose} />
+      </Sheet>
+      <Sheet open={open === 'life'} onClose={onClose} title={t('ช่วงชีวิตตอนนี้', "Where I'm at in life")}>
+        <LifeStagesForm onDone={onClose} />
       </Sheet>
       <Sheet open={open === 'online'} onClose={onClose} title={t('ช่วงที่มักออนไลน์', "When I'm usually online")}>
         <OnlineForm onDone={onClose} />
@@ -258,6 +271,71 @@ function StyleForm({ onDone }: { onDone: () => void }) {
           </Chip>
         ))}
         <OwnOption name={t('พิมพ์สไตล์การคุยเอง', 'Type your own chat style')} placeholder={t('เช่น ชอบส่งมีม', 'e.g. Sends lots of memes')} maxLength={OWN_STYLE_MAX} onAdd={addOwn} />
+      </div>
+      <Button type="submit" block size="lg" onPointerDown={leaveField}>
+        {t('บันทึก', 'Save')}
+      </Button>
+    </form>
+  )
+}
+
+/** One question: where life is at right now, up to LIFE_STAGE_MAX (the oldest pick makes room, like chat styles). */
+function LifeStagesForm({ onDone }: { onDone: () => void }) {
+  const me = useMoshi((s) => s.me)
+  const setLifeStages = useMoshi((s) => s.setLifeStages)
+  const [stages, setStages] = useState<string[]>(() => normalizeLifeStages(me.lifeStages))
+  const id = useId()
+  const toggle = (v: string) =>
+    setStages(stages.includes(v) ? stages.filter((x) => x !== v) : stages.length < LIFE_STAGE_MAX ? [...stages, v] : [...stages.slice(1), v])
+  // what they typed stays on the sheet even when the oldest-drop rule above unpicks it, so it can be picked again
+  const [typed, setTyped] = useState<string[]>(() => stages.filter((v) => !isListedLifeStage(v)))
+  const addOwn = (text: string) => {
+    const own = normalizeLifeStages([text])[0]
+    if (!own) return false
+    // typed exactly a listed one: that's the one
+    const v = LIFE_STAGES.find((o) => sharedLifeStages([o.value], [own]).length)?.value ?? own
+    if (!isListedLifeStage(v) && !sharedLifeStages([v], typed).length) setTyped([...typed, v])
+    if (!sharedLifeStages([v], stages).length) toggle(v)
+    return true
+  }
+  const choices = [...LIFE_STAGES.map((o) => o.value), ...typed]
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        setLifeStages(stages)
+        onDone()
+      }}
+      className="space-y-5 pb-2"
+    >
+      <p id={`${id}-hint`} className="text-sm text-ink-soft">
+        {t(
+          `เลือกได้ไม่เกิน ${LIFE_STAGE_MAX} อย่าง คนที่อยู่ช่วงเดียวกันจะเข้าใจกันง่าย และโมชิจะหาคนคลื่นเดียวกันได้แม่นขึ้น`,
+          `Pick up to ${LIFE_STAGE_MAX}. People in the same season of life just get each other, and Mochi can match you more closely`,
+        )}
+      </p>
+      <div role="group" aria-label={t('ช่วงชีวิตตอนนี้', "Where I'm at in life")} aria-describedby={`${id}-hint`} className="flex flex-wrap gap-2">
+        {choices.map((v) => (
+          <Chip
+            key={v}
+            color="sky"
+            selected={stages.includes(v)}
+            onClick={() => toggle(v)}
+            icon={
+              <span aria-hidden className="shrink-0">
+                {lifeStageEmoji(v)}
+              </span>
+            }
+          >
+            {lifeStageLabel(v)}
+          </Chip>
+        ))}
+        <OwnOption
+          name={t('พิมพ์ช่วงชีวิตของเราเอง', 'Type your own life stage')}
+          placeholder={t('เช่น กำลังเตรียมสอบ', 'e.g. Studying for exams')}
+          maxLength={LIFE_STAGE_TEXT_MAX}
+          onAdd={addOwn}
+        />
       </div>
       <Button type="submit" block size="lg" onPointerDown={leaveField}>
         {t('บันทึก', 'Save')}

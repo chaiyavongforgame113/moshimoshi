@@ -21,6 +21,8 @@ export interface ProfileRow {
   chat_style: string[] | null
   online: string[] | null
   languages: string[] | null
+  /** 20261117000001_lifestage_intro_watch.sql (absent before it runs) */
+  life_stages?: string[] | null
   is_host: boolean | null
   onboarded: boolean | null
   moshi_policy: string | null
@@ -165,6 +167,55 @@ export interface ChatRow {
   status: string
   icebreaker: string | null
   created_at: string
+  /** 'hello' | 'intro' (20261117000001_lifestage_intro_watch.sql; absent before it runs) */
+  kind?: string | null
+  /** intro chats: the question pair's question id */
+  pair_question?: string | null
+}
+
+/**
+ * "ให้โมชิแนะนำให้" (20261117000001_lifestage_intro_watch.sql). RLS shows me the ones I asked for
+ * and the ones about me I haven't set aside. Realtime deletes carry the id alone.
+ */
+export interface IntroRequestRow {
+  id: string
+  from_user: string
+  to_user: string
+  status: string
+  chat_id: string | null
+  created_at: string
+  expires_at: string
+  responded_at?: string | null
+}
+
+/** An answer to an intro chat's question pair. RLS shows the other person's only once I answered. */
+export interface PairAnswerRow {
+  id: string
+  chat_id: string
+  user_id: string
+  question_id: string
+  body: string
+  created_at: string
+}
+
+/** A room's clip (one row per room; ref null = nothing on). */
+export interface RoomWatchRow {
+  room_id: string
+  provider: string | null
+  ref: string | null
+  title: string | null
+  duration_s: number | null
+  is_live: boolean | null
+  playing: boolean | null
+  position_s: number | null
+  position_at: string
+  rate: number | null
+  started_by: string | null
+  started_at: string | null
+  anyone_can_control: boolean | null
+  updated_by: string | null
+  updated_at: string | null
+  version: number | null
 }
 
 export interface ChatMemberRow {
@@ -220,6 +271,9 @@ export interface TableRows {
   chat_messages: ChatMessageRow
   chat_message_sames: ChatSameRow
   prompt_sames: PromptSameRow
+  intro_requests: IntroRequestRow
+  chat_pair_answers: PairAnswerRow
+  room_watch: RoomWatchRow
   /** our own writes only (not streamed) */
   blocks: BlockRow
 }

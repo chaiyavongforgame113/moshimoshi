@@ -1,25 +1,30 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { CalendarClock, DoorOpen, MessageCircle, MessageCircleHeart, Radio } from 'lucide-react'
+import { CalendarClock, DoorOpen, MessageCircle, MessageCircleHeart, Radio, Sparkles } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { Avatar, ButtonLink, ReasonIcon, RoomIcon, SignalMeter } from '@/components/ui'
-import { useChats, useDailyPick, usePerson, useRoom, useSessions } from '@/data/hooks'
+import { useChats, useDailyPick, useIntroRequests, useIntroWith, usePerson, useRoom, useSessions } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
 import { eventPhase, eventWhenLabel, formatCountdown } from '@/lib/events'
 import { known, t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
-import type { Chat, MatchResult, MochiColor, Session } from '@/lib/types'
+import type { Chat, IntroRequest, MatchResult, MochiColor, Session } from '@/lib/types'
+import { IntroAnswer } from '@/pages/chats/intro/IncomingIntro'
 import { chatPhase, chatToOpen, previewText, setAside } from '@/pages/chats/lib'
 import { OpenDot } from '@/pages/events/EventCard'
 import { bySoonest, eventPath, useEventHref, useEventsNow } from '@/pages/events/lib'
 import { RsvpButton, useRsvp } from '@/pages/events/Rsvp'
+import { introOffered, useMochiReasons } from '@/pages/people/intro'
+import { IntroButton } from '@/pages/people/IntroButton'
+import { MochiReasonList } from '@/pages/people/IntroReasons'
 import { useIsMine } from '@/pages/people/lib'
 import { ageLabel, roomLabel } from './greeting'
 import { InviteButton } from './Soft'
 
 export type Next =
   | { kind: 'hello'; chat: Chat }
+  | { kind: 'intro'; intro: IntroRequest }
   | { kind: 'unread'; chat: Chat; others: number }
   | { kind: 'live'; session: Session; why: 'going' | 'room' }
   | { kind: 'pick'; match: MatchResult }
@@ -27,7 +32,8 @@ export type Next =
   | { kind: 'invite' }
 
 /**
- * The one most important thing right now, in this order: someone said hi / unread messages →
+ * The one most important thing right now, in this order: someone said hi / Mochi wants me to meet
+ * someone (an intro waiting for my answer) / unread messages →
  * an event I'm going to (or one in my rooms) is live → today's wavelength pick (until we're
  * chatting: the pick stays the same all day, and saying hi again isn't a next step) → the next
  * event → invite a friend. HomePage reads it too, so the zones below don't repeat what it shows.
@@ -41,11 +47,13 @@ export function useNextStep(): Next {
   const going = useMoshi((s) => s.going)
   const myRooms = useMoshi((s) => s.me.rooms)
   const pick = useDailyPick()
+  const introIn = useIntroRequests().incoming[0]
 
   return useMemo<Next>(() => {
     const open = chats.filter((c) => !setAside(c, isMine))
     const hello = open.find((c) => chatPhase(c) === 'incoming')
     if (hello) return { kind: 'hello', chat: hello }
+    if (introIn) return { kind: 'intro', intro: introIn }
     const unread = open.filter((c) => c.unread > 0)
     if (unread.length) return { kind: 'unread', chat: unread[0], others: unread.length - 1 }
 
@@ -58,11 +66,12 @@ export function useNextStep(): Next {
     const soonest = sessions.filter((s) => eventPhase(s, now) === 'upcoming').sort(bySoonest(now))[0]
     if (soonest) return { kind: 'upcoming', session: soonest }
     return { kind: 'invite' }
-  }, [chats, isMine, sessions, going, myRooms, pick, now])
+  }, [chats, isMine, sessions, going, myRooms, pick, now, introIn])
 }
 
 const keyOf = (n: Next) => {
   if (n.kind === 'hello' || n.kind === 'unread') return `${n.kind}:${n.chat.id}`
+  if (n.kind === 'intro') return `intro:${n.intro.id}`
   if (n.kind === 'live' || n.kind === 'upcoming') return `${n.kind}:${n.session.id}`
   if (n.kind === 'pick') return `pick:${n.match.userId}`
   return 'invite'
@@ -81,6 +90,7 @@ export function NextStep({ next }: { next: Next }) {
         transition={spring.soft}
       >
         {next.kind === 'hello' && <ChatCard chat={next.chat} hello />}
+        {next.kind === 'intro' && <IntroCard intro={next.intro} />}
         {next.kind === 'unread' && <ChatCard chat={next.chat} others={next.others} />}
         {next.kind === 'live' && <EventCard session={next.session} why={next.why} />}
         {next.kind === 'pick' && <PickCard match={next.match} />}
@@ -164,6 +174,35 @@ function ChatCard({ chat, hello = false, others = 0 }: { chat: Chat; hello?: boo
   )
 }
 
+/** Mochi wants me to meet someone: who, Mochi's top reasons, and the answer right here. */
+function IntroCard({ intro }: { intro: IntroRequest }) {
+  const u = usePerson(intro.withUserId)
+  const me = useMoshi((s) => s.me)
+  const reasons = useMochiReasons(intro.withUserId, 2)
+  if (!u) return <InviteCard />
+  return (
+    <Card
+      color={u.color}
+      eyebrow={
+        <>
+          <Sparkles size={14} strokeWidth={2.4} aria-hidden />
+          {t('น้องโมชิมีเพื่อนจะแนะนำ', 'Little Mochi has someone for you')}
+        </>
+      }
+      visual={
+        <Link to={`/app/people/${u.id}`} className="block rounded-full" aria-label={t(`ดูโปรไฟล์ ${u.name}`, `View ${u.name}'s profile`)}>
+          <Avatar color={u.color} size={56} face="happy" online={u.isOnline} />
+        </Link>
+      }
+      title={t(`โมชิอยากแนะนำ ${u.name} ให้รู้จัก`, `Mochi would love for you to meet ${u.name}`)}
+      line={`${ageLabel(me.age, u.age)} · ${known(u.province)}`}
+      actions={<IntroAnswer intro={intro} name={u.name} className="w-full" />}
+    >
+      <MochiReasonList reasons={reasons} />
+    </Card>
+  )
+}
+
 function EventCard({ session: s, why }: { session: Session; why?: 'going' | 'room' }) {
   const room = useRoom(s.roomId)
   const now = useEventsNow([s])
@@ -226,6 +265,8 @@ function PickCard({ match: m }: { match: MatchResult }) {
   const u = usePerson(m.userId)
   const me = useMoshi((s) => s.me)
   const chatId = chatToOpen(useChats(), m.userId)?.id
+  // the gentle way in ("ให้โมชิแนะนำให้") takes the place of "ดูโปรไฟล์" (the mochi opens the profile too)
+  const intro = introOffered(useIntroWith(m.userId).state)
   if (!u) return <InviteCard />
   const reason = m.reasons[0]
   return (
@@ -255,9 +296,13 @@ function PickCard({ match: m }: { match: MatchResult }) {
               {t('ทักแชท', 'Say hi')}
             </ButtonLink>
           )}
-          <ButtonLink to={`/app/people/${u.id}`} variant="ghost" className="w-full sm:w-auto">
-            {t('ดูโปรไฟล์', 'View profile')}
-          </ButtonLink>
+          {intro ? (
+            <IntroButton userId={u.id} />
+          ) : (
+            <ButtonLink to={`/app/people/${u.id}`} variant="ghost" className="w-full sm:w-auto">
+              {t('ดูโปรไฟล์', 'View profile')}
+            </ButtonLink>
+          )}
         </>
       }
     >

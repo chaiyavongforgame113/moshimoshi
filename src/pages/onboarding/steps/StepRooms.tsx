@@ -19,7 +19,7 @@ interface RoomRowItem {
 }
 
 /**
- * 10 · rooms, already picked for them (the lounge + the two that fit best). They only confirm;
+ * 11 · rooms, already picked for them (the lounge + the two that fit best). They only confirm;
  * the picks lead the list and every other room waits behind "ดูห้องอื่น".
  */
 export function StepRooms({ draft, update }: StepProps) {

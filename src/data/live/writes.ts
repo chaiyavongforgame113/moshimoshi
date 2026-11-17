@@ -1,7 +1,7 @@
 import type { Database } from '@/lib/database.types'
 import { db } from '@/lib/supabase'
 import { CHAT_IMAGES, LINK_SECONDS } from '@/data/chatImages'
-import type { EventDraft } from '@/lib/types'
+import type { EventDraft, VideoPick, WatchAction } from '@/lib/types'
 import type {
   AnswerRow,
   BlockedPersonRow,
@@ -9,10 +9,13 @@ import type {
   ChatMessageRow,
   EventMessageRow,
   IntentRow,
+  IntroRequestRow,
+  PairAnswerRow,
   ProfileRow,
   PromptSameRow,
   RoomMemberRow,
   RoomMessageRow,
+  RoomWatchRow,
   SessionRow,
   WaveAnswerRow,
 } from './rows'
@@ -367,4 +370,106 @@ export async function reportUser(target: string, reason: string, details?: strin
 
 export async function setMoshiPolicy(id: string, policy: 'everyone' | 'rooms' | 'chatted') {
   check(await db().from('profiles').update({ moshi_policy: policy } as Update<'profiles'>).eq('id', id))
+}
+
+// ------------------------------------------------------------------ life stages, intros, watching together
+// (20261117000001_lifestage_intro_watch.sql)
+
+/** The wave card teaser: name + mochi only (anyone may ask, signed in or not). null: nobody to show. */
+export async function waveCardPreview(userId: string): Promise<{ name: string; color: string; face: string | null; accessory: string | null } | null> {
+  const res = await db().rpc('wave_card_preview', { p_user: userId })
+  const list = check(res) as { name: string; color: string; face: string | null; accessory: string | null }[] | null
+  return list?.[0] ?? null
+}
+
+/** Ask Mochi to introduce me (returns the request's id; asking back on theirs opens the chat at once). */
+export async function requestIntro(target: string, question?: string): Promise<string> {
+  return check(await db().rpc('request_intro', { p_target: target, p_question: question ?? null })) as string
+}
+
+/** Answer an intro about me. Accept: the chat id. Decline: null. */
+export async function respondIntro(introId: string, accept: boolean, question?: string): Promise<string | null> {
+  return (check(await db().rpc('respond_intro', { p_intro: introId, p_accept: accept, p_question: question ?? null })) as string | null) ?? null
+}
+
+export async function insertPairAnswer(chatId: string, userId: string, questionId: string, body: string): Promise<PairAnswerRow> {
+  const res = await db()
+    .from('chat_pair_answers')
+    .insert({ chat_id: chatId, user_id: userId, question_id: questionId, body } as Insert<'chat_pair_answers'>)
+    .select()
+    .single()
+  return check(res) as PairAnswerRow
+}
+
+export async function watchStart(roomId: string, v: VideoPick): Promise<RoomWatchRow> {
+  const res = await db().rpc('watch_start', {
+    p_room: roomId,
+    p_provider: v.provider,
+    p_ref: v.ref,
+    p_title: v.title?.trim() || null,
+    p_duration_s: v.durationS && v.durationS > 0 ? v.durationS : null,
+    p_is_live: !!v.isLive,
+    p_position_s: v.startS && v.startS > 0 ? v.startS : 0,
+  })
+  return check(res) as RoomWatchRow
+}
+
+export async function watchControl(roomId: string, action: WatchAction, positionS?: number, rate?: number): Promise<RoomWatchRow> {
+  const res = await db().rpc('watch_control', {
+    p_room: roomId,
+    p_action: action,
+    p_position_s: positionS === undefined ? null : Math.max(0, positionS),
+    p_rate: rate ?? null,
+  })
+  return check(res) as RoomWatchRow
+}
+
+export async function watchStop(roomId: string): Promise<RoomWatchRow> {
+  return check(await db().rpc('watch_stop', { p_room: roomId })) as RoomWatchRow
+}
+
+/** What my player found out about the clip on (its length, or that it's live), once: controllers only. */
+export async function watchReport(roomId: string, ref: string, info: { durationS?: number; isLive?: boolean }): Promise<RoomWatchRow> {
+  const res = await db().rpc('watch_report', {
+    p_room: roomId,
+    p_ref: ref,
+    p_duration_s: info.durationS && info.durationS > 0 ? info.durationS : null,
+    p_is_live: !!info.isLive,
+  })
+  return check(res) as RoomWatchRow
+}
+
+export async function watchSetOpen(roomId: string, open: boolean): Promise<RoomWatchRow> {
+  return check(await db().rpc('watch_set_open', { p_room: roomId, p_open: open })) as RoomWatchRow
+}
+
+/** I'm watching (false: not counted, e.g. not a member or nothing on). */
+export async function watchHeartbeat(roomId: string): Promise<boolean> {
+  return !!check(await db().rpc('watch_heartbeat', { p_room: roomId }))
+}
+
+export async function watchLeave(roomId: string) {
+  check(await db().rpc('watch_leave', { p_room: roomId }))
+}
+
+/** Who's watching now (seen in the last minute; RLS leaves out anyone in a block relation with me). */
+export async function watchViewers(roomId: string): Promise<string[]> {
+  const res = await db().from('watch_viewers').select('user_id').eq('room_id', roomId).order('seen_at', { ascending: false }).limit(200)
+  return ((check(res) ?? []) as { user_id: string }[]).map((r) => r.user_id)
+}
+
+/** Intro requests by id as the server shows them to me now (one I set aside isn't there). */
+export async function introRows(ids: string[]): Promise<IntroRequestRow[]> {
+  if (!ids.length) return []
+  return (check(await db().from('intro_requests').select('*').in('id', ids)) ?? []) as IntroRequestRow[]
+}
+
+/** The question pair answers I can see in one chat (mine; theirs once I answered too). */
+export async function pairAnswerRows(chatId: string): Promise<PairAnswerRow[]> {
+  return (check(await db().from('chat_pair_answers').select('*').eq('chat_id', chatId).order('created_at')) ?? []) as PairAnswerRow[]
+}
+
+/** One room's clip as the server has it now (null: it never had one). */
+export async function roomWatchRow(roomId: string): Promise<RoomWatchRow | null> {
+  return (check(await db().from('room_watch').select('*').eq('room_id', roomId).maybeSingle()) as RoomWatchRow | null) ?? null
 }

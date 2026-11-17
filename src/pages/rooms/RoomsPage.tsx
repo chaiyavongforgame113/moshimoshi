@@ -4,7 +4,7 @@ import { useDeferredValue, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { KineticText } from '@/components/motion'
 import { Avatar, Button, PageHeader, ShowMore, tabId, tabPanelId, Tabs, Zone, type TabItem } from '@/components/ui'
-import { useDataReady, useEvents, useRooms } from '@/data/hooks'
+import { useDataReady, useEvents, useRooms, useWatchingRooms } from '@/data/hooks'
 import { eventPhase } from '@/lib/events'
 import { L, loc, t } from '@/lib/i18n'
 import { fadeUp, spring, stagger } from '@/lib/motion'
@@ -68,6 +68,8 @@ export default function RoomsPage() {
 
 function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
   const me = useMoshi((s) => s.me)
+  // rooms watching a clip together right now (their cards say so)
+  const watching = useWatchingRooms()
   const { toggle, sheet } = useRoomToggle()
   const events = useEvents()
   // the clock flips right when an event opens or closes (room badges, the tab's count)
@@ -196,7 +198,7 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
                 listClassName="grid gap-3 md:grid-cols-2 md:gap-4 md:[&>li:last-child:nth-child(odd)]:col-span-2"
                 itemClassName="min-w-0"
                 moreLabel={(n) => t(`ดูห้องเพิ่ม (อีก ${n})`, `Show more rooms (${n} more)`)}
-                render={(r) => <RoomCard room={r} me={me} joined={me.rooms.includes(r.id)} onToggle={() => toggle(r)} openEvent={openEvents.get(r.id)} />}
+                render={(r) => <RoomCard room={r} me={me} joined={me.rooms.includes(r.id)} onToggle={() => toggle(r)} openEvent={openEvents.get(r.id)} watching={watching[r.id]} />}
               />
             </Zone>
           </motion.div>

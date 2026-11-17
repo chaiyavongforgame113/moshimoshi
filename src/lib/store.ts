@@ -3,13 +3,32 @@ import { persist } from 'zustand/middleware'
 import { useCatalog } from '@/data/catalog'
 import { keepLocalUrl, releaseLocalUrl } from '@/data/chatImages'
 import { liveActions } from '@/data/live/actions'
+import { knownError } from '@/data/live/errors'
 import { dayOffset, hhmm } from '@/data/live/time'
-import { DEMO_CHATS, DEMO_ME } from '@/data/mock'
+import { DEMO_CHATS, DEMO_INTROS, DEMO_ME } from '@/data/mock'
+import { demoPairAnswer, MOCHI_LINES, PAIR_ANSWER_MAX, pickPairQuestion } from '@/data/pairQuestions'
+import { watchPositionAt, WATCH_LIMITS } from '@/data/watch'
 import { t, tx, useLangStore } from '@/lib/i18n'
 import { checkEventDraft, EVENT_LIMITS, EVENT_REFUSALS, eventDraftIssueText, eventPhase } from './events'
 import type { PreparedImage } from './image'
+import { normalizeLifeStages } from './lifeStages'
 import { isLive } from './supabase'
-import type { Chat, ChatMessage, EventDraft, Intent, Mood, Session, User, WaveAnswers, WaveChoice } from './types'
+import type {
+  Chat,
+  ChatMessage,
+  EventDraft,
+  Intent,
+  IntroRequest,
+  Mood,
+  PairAnswer,
+  RoomWatch,
+  Session,
+  User,
+  VideoPick,
+  WatchAction,
+  WaveAnswers,
+  WaveChoice,
+} from './types'
 
 const now = () => new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
 const uid = (p: string) => `${p}-${Math.random().toString(36).slice(2, 9)}`
@@ -46,6 +65,14 @@ export interface MoshiState {
   blocked: string[]
   /** who may send me a moshi */
   moshiPolicy: MoshiPolicy
+  /**
+   * "ให้โมชิแนะนำให้": intros I asked for (outgoing) and ones about me (incoming), newest first.
+   * Live: from the server (one I set aside is gone; one about me that I asked for back opens a chat).
+   * Read them through useIntroRequests() / useIntroWith().
+   */
+  intros: IntroRequest[]
+  /** question pair answers per chat id: mine, and theirs once both answered (usePairQuestion) */
+  pairAnswers: Record<string, PairAnswer[]>
   mood?: Mood
   /** a small message for the toast (e.g. a write that didn't go through) */
   notice: { id: number; text: string } | null
@@ -109,6 +136,46 @@ export interface MoshiState {
   unblockUser: (userId: string) => void
   reportUser: (userId: string, reason: string, details?: string) => void
   setMoshiPolicy: (policy: MoshiPolicy) => void
+  /**
+   * My "ช่วงชีวิต" (at most 3, normalized with normalizeLifeStages): the list's Thai values or my own
+   * text. Saved right away; a toast says "soon" while the server piece is missing.
+   */
+  setLifeStages: (list: string[]) => void
+  /**
+   * "ให้โมชิแนะนำให้": ask Mochi to introduce me to someone on my wavelength. Resolves true once the
+   * request is in (or already was; if they had asked about me first, the chat opens right away),
+   * false after a toast saying why not (3 a day, already chatting, their hello settings, a block…).
+   */
+  requestIntro: (userId: string) => Promise<boolean>
+  /**
+   * Answer an intro about me (an incoming IntroRequest's id). `ok`: the answer went through (false
+   * after a toast saying why). Accept ("ยินดีรู้จัก"): `chatId` is the chat Mochi opened (go to
+   * /app/chats/<id>; also there when it had been accepted already). Decline ("ไว้ก่อนนะ"): it's gone
+   * from my list; the other person is never told.
+   */
+  respondIntro: (introId: string, accept: boolean) => Promise<{ ok: boolean; chatId?: string }>
+  /**
+   * The question pair: my answer (1–300 characters) to the chat's question. Resolves true once saved;
+   * theirs shows when both have answered (usePairQuestion).
+   */
+  answerPair: (chatId: string, questionId: string, text: string) => Promise<boolean>
+  /** Put a clip on in a room for everyone (a member; while one plays, only those who may control it). */
+  watchStart: (roomId: string, video: VideoPick) => Promise<boolean>
+  /**
+   * Play / pause / seek (positionS required) / rate (0.25–2) for the whole room. positionS for play and
+   * pause is where my own player is (optional: the server works it out). Resolves false after a toast.
+   */
+  watchControl: (roomId: string, action: WatchAction, positionS?: number, rate?: number) => Promise<boolean>
+  /** Take the clip off for everyone (the UI asks first). */
+  watchStop: (roomId: string) => Promise<boolean>
+  /**
+   * What my player found out about the clip on (`ref`): its length in seconds, or that it's a live
+   * stream. Once per clip, from someone who may control it; the room then knows when it ends. Quiet:
+   * no toast either way (resolves false when the room didn't take it).
+   */
+  watchReport: (roomId: string, ref: string, info: { durationS?: number; isLive?: boolean }) => Promise<boolean>
+  /** "ให้ทุกคนคุมได้": hosts of the room and staff. */
+  watchSetOpen: (roomId: string, open: boolean) => Promise<boolean>
   setMood: (mood: Mood) => void
   notify: (text: string) => void
   clearNotice: () => void
@@ -155,11 +222,13 @@ const DEMO_DATA: MoshiData = {
   waveOwner: '',
   blocked: [],
   moshiPolicy: 'everyone',
+  intros: DEMO_INTROS,
+  pairAnswers: {},
   mood: undefined,
   notice: null,
 }
 
-const LIVE_DATA: MoshiData = { ...DEMO_DATA, me: BLANK_ME, chats: [] }
+const LIVE_DATA: MoshiData = { ...DEMO_DATA, me: BLANK_ME, chats: [], intros: [], pairAnswers: {} }
 
 /** A chat as it's saved on this device: no photo still "on its way" (after a reload it never arrives). */
 function settled(chat: Chat): Chat {
@@ -175,6 +244,12 @@ function settled(chat: Chat): Chat {
 }
 
 let noticeId = 0
+
+/** set by demoActions: answers demo intros whose simulated answer was lost to a reload */
+let settleDemo: () => void = () => {}
+
+/** Demo only: intros I asked for get their simulated answer (useIntroRequests calls it). */
+export const settleDemoIntros = () => settleDemo()
 
 const MINUTE = 60_000
 const WEEK = 7 * 86_400_000
@@ -215,8 +290,56 @@ function editDemoEvents(fn: (s: Session) => Session) {
   cat.set({ sessions: cat.sessions.map(fn) })
 }
 
+/** demo: how long the simulated person takes to answer an intro I asked for, and the question pair */
+const DEMO_INTRO_MS = 3500
+const DEMO_PAIR_MS = 2600
+const INTRO_TTL_MS = 3 * 86_400_000
+const DAY_MS = 86_400_000
+
+const isOpenIntro = (i: IntroRequest, t = Date.now()) => i.status === 'pending' && Date.parse(i.expiresAt) > t
+
+/** Demo: change one room's clip in the catalog (null takes it off). */
+function editDemoWatch(roomId: string, fn: (w: RoomWatch | undefined) => RoomWatch | null) {
+  const cat = useCatalog.getState()
+  const next = fn(cat.roomWatch[roomId])
+  const roomWatch = { ...cat.roomWatch }
+  if (next) roomWatch[roomId] = next
+  else delete roomWatch[roomId]
+  cat.set({ roomWatch })
+}
+
 /** Local-only behaviour: the whole prototype in demo mode, sample people in live mode. */
 export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
+  /**
+   * Demo: an intro gets its "ยินดีรู้จัก": the 1:1 chat (the one we had, or a new one) gets Mochi's
+   * intro line and the question pair. Returns the chat id.
+   */
+  const acceptDemoIntro = (introId: string): string | undefined => {
+    const intro = get().intros.find((i) => i.id === introId)
+    if (!intro) return undefined
+    if (intro.status !== 'pending') return intro.chatId
+    const question = pickPairQuestion().id
+    const lines: ChatMessage[] = [
+      { id: uid('m'), userId: 'system', text: MOCHI_LINES.intro, at: now(), kind: 'mochi' },
+      { id: uid('m'), userId: 'system', text: MOCHI_LINES.ask, at: now(), kind: 'mochi' },
+    ]
+    const existing = get().chats.find((c) => c.withUserId === intro.withUserId)
+    const chat: Chat = existing
+      ? { ...existing, kind: 'intro', pairQuestion: question, unread: existing.unread + lines.length, messages: [...existing.messages, ...lines] }
+      : { id: uid('c'), withUserId: intro.withUserId, kind: 'intro', pairQuestion: question, unread: intro.direction === 'outgoing' ? lines.length : 0, messages: lines }
+    set((s) => ({
+      chats: existing ? s.chats.map((c) => (c.id === existing.id ? chat : c)) : [chat, ...s.chats],
+      intros: s.intros.map((i) => (i.id === introId ? { ...i, status: 'accepted', chatId: chat.id } : i)),
+    }))
+    return chat.id
+  }
+  settleDemo = () => {
+    const nowMs = Date.now()
+    get()
+      .intros.filter((i) => i.direction === 'outgoing' && isOpenIntro(i, nowMs) && nowMs - Date.parse(i.createdAt) >= DEMO_INTRO_MS)
+      .forEach((i) => acceptDemoIntro(i.id))
+  }
+
   return {
     completeOnboarding: (patch) => set((s) => ({ onboarded: true, me: { ...s.me, ...patch, id: s.me.id } })),
     updateMe: (patch) => set((s) => ({ me: { ...s.me, ...patch, id: s.me.id } })),
@@ -405,6 +528,154 @@ export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
     unblockUser: (userId) => set((s) => (s.blocked.includes(userId) ? { blocked: s.blocked.filter((x) => x !== userId) } : s)),
     reportUser: () => {},
     setMoshiPolicy: (moshiPolicy) => set({ moshiPolicy }),
+    setLifeStages: (list) => set((s) => ({ me: { ...s.me, lifeStages: normalizeLifeStages(list) } })),
+    requestIntro: (userId) => {
+      const s = get()
+      const refuse = (key: string) => {
+        get().notify(knownError({ message: key }) ?? t('ตอนนี้ยังทำไม่ได้นะ', "You can't do that just yet"))
+        return Promise.resolve(false)
+      }
+      if (!userId || userId === s.me.id) return refuse('cannot_intro_self')
+      if (s.blocked.includes(userId)) return refuse('blocked')
+      if (s.chats.some((c) => c.withUserId === userId)) return refuse('already_chatting')
+      const nowMs = Date.now()
+      if (s.intros.some((i) => i.direction === 'outgoing' && i.withUserId === userId && isOpenIntro(i, nowMs))) return Promise.resolve(true)
+      // they asked Mochi about me first: asking back is a yes
+      const theirs = s.intros.find((i) => i.direction === 'incoming' && i.withUserId === userId && isOpenIntro(i, nowMs))
+      if (theirs) {
+        acceptDemoIntro(theirs.id)
+        return Promise.resolve(true)
+      }
+      if (s.intros.filter((i) => i.direction === 'outgoing' && nowMs - Date.parse(i.createdAt) < DAY_MS).length >= 3) return refuse('intro_rate_limited')
+      const intro: IntroRequest = {
+        id: uid('intro'),
+        fromUserId: s.me.id,
+        toUserId: userId,
+        direction: 'outgoing',
+        withUserId: userId,
+        status: 'pending',
+        createdAt: new Date(nowMs).toISOString(),
+        expiresAt: new Date(nowMs + INTRO_TTL_MS).toISOString(),
+      }
+      set((st) => ({ intros: [intro, ...st.intros] }))
+      // the simulated person says yes a moment later (settleDemoIntros catches up after a reload)
+      window.setTimeout(() => acceptDemoIntro(intro.id), DEMO_INTRO_MS)
+      return Promise.resolve(true)
+    },
+    respondIntro: (introId, accept) => {
+      const intro = get().intros.find((i) => i.id === introId)
+      if (!intro || intro.direction !== 'incoming') return Promise.resolve({ ok: false })
+      if (!isOpenIntro(intro)) {
+        get().notify(knownError({ message: intro.status === 'accepted' ? 'intro_not_pending' : 'intro_expired' }) ?? '')
+        return Promise.resolve({ ok: false, ...(intro.chatId ? { chatId: intro.chatId } : {}) })
+      }
+      if (accept) {
+        const chatId = acceptDemoIntro(introId)
+        return Promise.resolve({ ok: !!chatId, ...(chatId ? { chatId } : {}) })
+      }
+      // silent for them: it just leaves my list
+      set((s) => ({ intros: s.intros.filter((i) => i.id !== introId) }))
+      return Promise.resolve({ ok: true })
+    },
+    answerPair: (chatId, questionId, text) => {
+      const body = text.trim().slice(0, PAIR_ANSWER_MAX)
+      const chat = get().chats.find((c) => c.id === chatId)
+      if (!body || !chat || chat.pairQuestion !== questionId) return Promise.resolve(false)
+      const me = get().me.id
+      const list = get().pairAnswers[chatId] ?? []
+      if (list.some((a) => a.userId === me && a.questionId === questionId)) return Promise.resolve(true)
+      const mine: PairAnswer = { chatId, userId: me, questionId, text: body, at: new Date().toISOString() }
+      set((s) => ({ pairAnswers: { ...s.pairAnswers, [chatId]: [...(s.pairAnswers[chatId] ?? []), mine] } }))
+      // the simulated person answers a little later, then Mochi steps back
+      window.setTimeout(() => {
+        const st = get()
+        const answers = st.pairAnswers[chatId] ?? []
+        if (answers.some((a) => a.userId === chat.withUserId && a.questionId === questionId)) return
+        const theirs: PairAnswer = { chatId, userId: chat.withUserId, questionId, text: demoPairAnswer(questionId), at: new Date().toISOString() }
+        set((s2) => ({
+          pairAnswers: { ...s2.pairAnswers, [chatId]: [...(s2.pairAnswers[chatId] ?? []), theirs] },
+          chats: s2.chats.map((c) =>
+            c.id === chatId
+              ? { ...c, unread: c.unread + 1, messages: [...c.messages, { id: uid('m'), userId: 'system', text: MOCHI_LINES.bye, at: now(), kind: 'mochi' as const }] }
+              : c,
+          ),
+        }))
+      }, DEMO_PAIR_MS)
+      return Promise.resolve(true)
+    },
+    watchStart: (roomId, video) => {
+      if (!get().me.rooms.includes(roomId)) {
+        get().notify(knownError({ message: 'watch_not_member' }) ?? '')
+        return Promise.resolve(false)
+      }
+      const me = get().me.id
+      const nowMs = Date.now()
+      const open = !!useCatalog.getState().roomWatchOpen[roomId]
+      editDemoWatch(roomId, (prev) => ({
+        roomId,
+        provider: video.provider,
+        ref: video.ref,
+        ...(video.title?.trim() ? { title: video.title.trim().slice(0, WATCH_LIMITS.titleMax) } : {}),
+        ...(video.durationS && video.durationS > 0 ? { durationS: video.durationS } : {}),
+        isLive: !!video.isLive,
+        playing: true,
+        positionS: video.isLive ? 0 : Math.max(0, video.startS ?? 0),
+        positionAt: nowMs + WATCH_LIMITS.startLeadMs,
+        rate: 1,
+        startedBy: me,
+        startedAt: nowMs,
+        anyoneCanControl: open,
+        updatedBy: me,
+        updatedAt: nowMs,
+        version: (prev?.version ?? 0) + 1,
+      }))
+      return Promise.resolve(true)
+    },
+    watchControl: (roomId, action, positionS, rate) => {
+      const w = useCatalog.getState().roomWatch[roomId]
+      if (!w) {
+        get().notify(knownError({ message: 'watch_not_playing' }) ?? '')
+        return Promise.resolve(false)
+      }
+      if (action === 'seek' && (positionS === undefined || positionS < 0)) return Promise.resolve(false)
+      if (action === 'rate' && (rate === undefined || rate < WATCH_LIMITS.rateMin || rate > WATCH_LIMITS.rateMax)) return Promise.resolve(false)
+      const nowMs = Date.now()
+      const here = watchPositionAt(w, nowMs)
+      const lead = nowMs + WATCH_LIMITS.startLeadMs
+      const clamp = (p: number) => (w.isLive ? 0 : Math.min(Math.max(0, p), w.durationS ?? Number.POSITIVE_INFINITY))
+      const me = get().me.id
+      editDemoWatch(roomId, (prev) => {
+        if (!prev) return null
+        const base = { ...prev, updatedBy: me, updatedAt: nowMs, version: prev.version + 1 }
+        if (action === 'play') return { ...base, playing: true, positionS: clamp(positionS ?? here), positionAt: lead }
+        if (action === 'pause') return { ...base, playing: false, positionS: clamp(positionS ?? here), positionAt: nowMs }
+        if (action === 'seek') return { ...base, positionS: clamp(positionS ?? here), positionAt: prev.playing ? lead : nowMs }
+        return { ...base, positionS: clamp(here), positionAt: nowMs, rate: rate ?? prev.rate }
+      })
+      return Promise.resolve(true)
+    },
+    watchStop: (roomId) => {
+      editDemoWatch(roomId, () => null)
+      return Promise.resolve(true)
+    },
+    watchReport: (roomId, ref, info) => {
+      const w = useCatalog.getState().roomWatch[roomId]
+      const durationS = info.durationS && info.durationS > 0 && info.durationS <= WATCH_LIMITS.durationMax ? info.durationS : undefined
+      // as the server: once, for this clip, and a report isn't anyone's play or pause
+      if (!w || w.ref !== ref || w.isLive || w.durationS || (!info.isLive && !durationS)) return Promise.resolve(false)
+      editDemoWatch(roomId, (prev) => {
+        if (!prev) return null
+        if (info.isLive) return { ...prev, isLive: true, positionS: 0, positionAt: Date.now(), version: prev.version + 1 }
+        return { ...prev, durationS, positionS: Math.min(prev.positionS, durationS ?? prev.positionS), version: prev.version + 1 }
+      })
+      return Promise.resolve(true)
+    },
+    watchSetOpen: (roomId, open) => {
+      const cat = useCatalog.getState()
+      cat.set({ roomWatchOpen: { ...cat.roomWatchOpen, [roomId]: open } })
+      editDemoWatch(roomId, (prev) => (prev ? { ...prev, anyoneCanControl: open, version: prev.version + 1 } : null))
+      return Promise.resolve(true)
+    },
     setMood: (mood) => set({ mood }),
     notify: (text) => set({ notice: { id: ++noticeId, text } }),
     clearNotice: () => set({ notice: null }),

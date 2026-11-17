@@ -1,12 +1,13 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { Clock3, DoorOpen, MessageCircleHeart, Search, Sparkle, Star, Tags } from 'lucide-react'
+import { Clock3, DoorOpen, MessageCircleHeart, Search, Signpost, Sparkle, Star, Tags } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { MochiExpression } from '@/components/three'
 import { AllDayChip, RoomIcon } from '@/components/ui'
-import { useRooms } from '@/data/hooks'
+import { useRooms, useServerFeatures } from '@/data/hooks'
 import { chatStyleLabel, isAllDay, ONLINE_LABEL, promptLabel, tagOf } from '@/data/tags'
 import { CATEGORY_COLOR, MOCHI } from '@/lib/colors'
 import { known, t } from '@/lib/i18n'
+import { lifeStageEmoji, lifeStageLabel } from '@/lib/lifeStages'
 import { spring } from '@/lib/motion'
 import { textLength, type Draft } from '../model'
 import { TEMPLATE_BY_ID } from '../options'
@@ -62,6 +63,7 @@ function ProfilePreview({ draft, province }: { draft: Draft; province: string })
   const allDay = isAllDay(draft.online)
   const rhythm = [...(allDay ? [] : draft.online.map((s) => ONLINE_LABEL[s])), ...draft.chatStyle.map(chatStyleLabel)]
   const rooms = useRooms()
+  const lifeOn = useServerFeatures().lifeStages
 
   return (
     <div className="glass rounded-[1.75rem] p-4 xl:p-5">
@@ -102,6 +104,36 @@ function ProfilePreview({ draft, province }: { draft: Draft; province: string })
             <Ghosts widths={['w-16', 'w-20', 'w-14']} />
           )}
         </Row>
+
+        {lifeOn && (
+          <Row icon={<Signpost size={14} />} label={t('ช่วงชีวิต', 'Life stage')}>
+            {draft.lifeStages.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                <AnimatePresence initial={false}>
+                  {draft.lifeStages.map((v) => (
+                    <motion.span
+                      key={v}
+                      layout
+                      initial={{ opacity: 0, scale: 0.6 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.6 }}
+                      transition={spring.bouncy}
+                      className="inline-flex h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-xs font-medium"
+                      style={{ background: MOCHI.sky.light, color: MOCHI.sky.ink }}
+                    >
+                      <span aria-hidden className="shrink-0">
+                        {lifeStageEmoji(v)}
+                      </span>
+                      <span className="min-w-0 truncate">{lifeStageLabel(v)}</span>
+                    </motion.span>
+                  ))}
+                </AnimatePresence>
+              </div>
+            ) : (
+              <Ghosts widths={['w-24', 'w-16']} />
+            )}
+          </Row>
+        )}
 
         <Row icon={<MessageCircleHeart size={14} />} label={t('เล่าให้ฟัง', 'About me')}>
           {story ? (
