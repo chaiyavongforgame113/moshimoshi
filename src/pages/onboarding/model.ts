@@ -4,7 +4,7 @@ import type { MochiAccessory, MochiExpression } from '@/components/three'
 import { OWN_PROMPT_ID, PROMPTS, tagLabelTh, tagOf } from '@/data/tags'
 import { known, t } from '@/lib/i18n'
 import { normalizeLifeStages } from '@/lib/lifeStages'
-import type { Intent, IntentTemplate, MochiColor, OnlineSlot, PromptAnswer, Room, TagCategory, User } from '@/lib/types'
+import type { Intent, IntentTemplate, IntentWhen, MochiColor, OnlineSlot, PromptAnswer, Room, TagCategory, User } from '@/lib/types'
 
 export interface Draft {
   name: string
@@ -25,6 +25,11 @@ export interface Draft {
   intent: IntentTemplate | null
   /** topic for the "คุยเรื่อง…" template */
   intentTag: string | null
+  /**
+   * What they changed in the post น้องโมชิ wrote, per template, so trying another card and coming
+   * back keeps their words. Optional: a draft from before this field existed still works.
+   */
+  postEdits?: Partial<Record<IntentTemplate, PostEdit>>
   online: OnlineSlot[]
   chatStyle: string[]
   /** "ช่วงชีวิต", up to LIFE_STAGE_MAX (stored Thai values, or what they typed) */
@@ -164,7 +169,7 @@ export function validate(screen: ScreenKey, d: Draft): StepCheck {
       return { ok: true }
     }
     case 'rooms':
-      return d.rooms.length ? { ok: true } : { ok: false, need: t('เลือกอย่างน้อย 1 ห้องนะ', 'Pick at least 1 room') }
+      return d.rooms.length ? { ok: true } : { ok: false, need: t('กดเข้าร่วมสักห้องก่อนนะ', 'Join a room first') }
     default:
       return { ok: true }
   }
@@ -194,39 +199,66 @@ export function autoBio(d: Draft): string {
 // ------------------------------------------------------------------ rooms
 export interface RankedRoom {
   room: Room
+  /** their interests the room talks about, loved ones first */
   shared: string[]
   score: number
 }
 
-const TEMPLATE_ROOM: Record<IntentTemplate, string> = {
-  play: 'game-night',
-  talk: '',
-  lang: 'lang',
-  event: 'music',
-  newbie: 'lobby',
-  study: 'cowork',
-  moved: 'moved-bkk',
-  listen: 'listen',
+/** How many rooms that fit get picked for them, besides the lounge. */
+export const ROOM_PICKS = 2
+
+/** The room a life stage fits (stored Thai values), e.g. "เพิ่งย้ายมาเมืองนี้" → เพิ่งย้ายมากรุงเทพฯ. */
+const LIFE_ROOM: Record<string, string> = {
+  'เพิ่งย้ายมาเมืองนี้': 'moved-bkk',
+  'เริ่มงานแรก': 'moved-bkk',
+  'อยู่คนเดียวครั้งแรก': 'listen',
+  'ทำงานกะดึก': 'listen',
+  'นักศึกษา': 'cowork',
+  'ทำงานที่บ้าน': 'cowork',
+  'ฟรีแลนซ์': 'cowork',
+  'เพิ่งกลับจากต่างประเทศ': 'lang',
 }
 
 export const lobbyOf = (rooms: Room[]) => rooms.find((r) => r.isLobby)
 
-/** Non-lobby rooms ranked by tag overlap (loved tags count more, the chosen intent's room gets a nudge). */
+/** The ids that are still rooms (a saved or restored pick can outlive its room). */
+export const knownRooms = (ids: string[], rooms: Room[]) => ids.filter((id) => rooms.some((r) => r.id === id))
+
+/**
+ * Non-lobby rooms ranked by fit: shared interests (loved ones count more), the room their first
+ * post goes to (read off the post itself, so a "คุยเรื่อง…" topic they never tapped still counts) and
+ * their life stages. Ties go to the livelier room.
+ */
 export function rankRooms(d: Draft, rooms: Room[]): RankedRoom[] {
-  const intentRoom = d.intent ? TEMPLATE_ROOM[d.intent] : ''
+  const intentRoom = templateIntent(d, '', rooms)?.roomId
+  const lifeRooms = new Set(d.lifeStages.flatMap((s) => LIFE_ROOM[s] ?? []))
+  const loved = (tag: string) => d.loves.includes(tag)
   return rooms
     .filter((r) => !r.isLobby)
     .map((room) => {
-      const shared = room.tags.filter((t) => d.tags.includes(t))
-      const score = shared.reduce((s, t) => s + (d.loves.includes(t) ? 1.5 : 1), 0) + (room.id === intentRoom ? 2 : 0)
+      const shared = room.tags.filter((tag) => d.tags.includes(tag)).sort((a, b) => Number(loved(b)) - Number(loved(a)))
+      const score =
+        shared.reduce((s, tag) => s + (loved(tag) ? 1.5 : 1), 0) + (room.id === intentRoom ? 2 : 0) + (lifeRooms.has(room.id) ? 1.5 : 0)
       return { room, shared, score }
     })
-    .sort((a, b) => b.score - a.score || b.room.onlineCount - a.room.onlineCount)
+    .sort((a, b) => b.score - a.score || b.room.onlineCount - a.room.onlineCount || b.room.memberCount - a.room.memberCount)
 }
 
+/** The rooms that fit them ("น่าจะถูกใจ"): the best ROOM_PICKS with anything in common, best first. */
+export const fittingRooms = (d: Draft, rooms: Room[]): string[] =>
+  rankRooms(d, rooms)
+    .filter((r) => r.score > 0)
+    .slice(0, ROOM_PICKS)
+    .map((r) => r.room.id)
+
+/**
+ * Picked for them before they choose: the rooms that fit, then the lounge (everyone's room).
+ * Nothing fits and there's no lounge: the liveliest room, so there's always one to join.
+ */
 export function defaultRooms(d: Draft, rooms: Room[]): string[] {
   const lobby = lobbyOf(rooms)
-  return [...(lobby ? [lobby.id] : []), ...rankRooms(d, rooms).slice(0, 2).map((r) => r.room.id)]
+  const picks = [...fittingRooms(d, rooms), ...(lobby ? [lobby.id] : [])]
+  return picks.length ? picks : rankRooms(d, rooms).slice(0, 1).map((r) => r.room.id)
 }
 
 // ------------------------------------------------------------------ first intent
@@ -239,15 +271,62 @@ function pickTag(d: Draft, cats: TagCategory[], fallback: string): string {
   return d.loves.find(inCat) ?? d.tags.find(inCat) ?? fallback
 }
 
+/** Same cap as the ชวนเล่น composer (pages/post TEXT_MAX), so editing the post there later never cuts it (intents.body allows 200). */
+export const POST_TEXT_MAX = 100
+
+/** The times the post card offers ("dated" needs a date, which only the composer asks for). */
+export type PostWhen = Exclude<IntentWhen, 'dated'>
+
+/** What the visitor changed in the post น้องโมชิ wrote. Anything missing keeps Mochi's. */
+export interface PostEdit {
+  /** their own words as typed; blank means Mochi's sentence */
+  text?: string
+  when?: PostWhen
+  mode?: Intent['mode']
+}
+
+/** stored Thai like the composer's, shown with known() */
+const WHEN_LABEL_TH: Record<PostWhen, string | undefined> = { tonight: 'คืนนี้', weekend: 'สุดสัปดาห์นี้', anytime: undefined }
+
+/** One line, single spaces, never longer than a post can be. */
+export const tidyPostText = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, POST_TEXT_MAX).trim()
+
+/** The changes for the template they picked (none yet: an empty edit). */
+export const postEditOf = (d: Draft): PostEdit => (d.intent ? d.postEdits?.[d.intent] : undefined) ?? {}
+
+/** Patch that merges `change` into the picked template's edit. */
+export const editPost =
+  (change: PostEdit) =>
+  (d: Draft): Partial<Draft> =>
+    d.intent ? { postEdits: { ...d.postEdits, [d.intent]: { ...d.postEdits?.[d.intent], ...change } } } : {}
+
 /**
- * Turns the chosen quick template into a sensible board post (rooms that don't exist are left off).
- * The post text reads like the person wrote it, so it's in their language; whenLabel stays Thai (stored, shown with known()).
+ * The post น้องโมชิ writes from the chosen quick template (rooms that don't exist are left off), before
+ * the visitor's own changes. The text reads like the person wrote it, so it's in their language;
+ * whenLabel stays Thai (stored, shown with known()).
  */
-export function buildIntent(d: Draft, province: string, rooms: Room[]): IntentDraft | null {
+export function suggestedIntent(d: Draft, province: string, rooms: Room[]): IntentDraft | null {
   const intent = templateIntent(d, province, rooms)
   if (!intent) return null
   const roomId = intent.roomId && rooms.some((r) => r.id === intent.roomId) ? intent.roomId : undefined
   return { ...intent, roomId }
+}
+
+/** The post that goes up: Mochi's, with the visitor's own words, time and place on top (a cleared text falls back to Mochi's). */
+export function buildIntent(d: Draft, province: string, rooms: Room[]): IntentDraft | null {
+  const base = suggestedIntent(d, province, rooms)
+  if (!base) return null
+  const edit = postEditOf(d)
+  const out: IntentDraft = { ...base, text: tidyPostText(edit.text ?? '') || base.text }
+  if (edit.when && edit.when !== base.when) {
+    out.when = edit.when
+    out.whenLabel = WHEN_LABEL_TH[edit.when]
+  }
+  if (edit.mode && edit.mode !== base.mode) {
+    out.mode = edit.mode
+    out.province = edit.mode === 'offline' ? (base.province ?? province) : undefined
+  }
+  return out
 }
 
 function templateIntent(d: Draft, province: string, rooms: Room[]): IntentDraft | null {

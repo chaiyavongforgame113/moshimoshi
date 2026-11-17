@@ -2,46 +2,27 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Sparkles } from 'lucide-react'
 import { isAllDay, ONLINE_LABEL } from '@/data/tags'
 import { t } from '@/lib/i18n'
-import { fadeUp, spring } from '@/lib/motion'
+import { spring } from '@/lib/motion'
+import type { OnlineSlot } from '@/lib/types'
 import type { StepProps } from '../model'
 import { SLOT_OPTIONS } from '../options'
+import { ChoiceGrid } from '../parts/ChoiceGrid'
 
 /** 8 · when they're usually around (any number of slots; skippable). */
 export function StepOnline({ draft, update }: StepProps) {
   const reduce = useReducedMotion()
   return (
     <div className="space-y-3">
-      <motion.div variants={fadeUp} role="group" aria-label={t('ช่วงเวลาที่ออนไลน์', 'Times you are online')} className="grid grid-cols-2 gap-2.5">
-        {SLOT_OPTIONS.map(({ id, Icon, time }) => {
-          const on = draft.online.includes(id)
-          return (
-            <motion.button
-              key={id}
-              type="button"
-              aria-pressed={on}
-              onClick={() => update((d) => ({ online: on ? d.online.filter((s) => s !== id) : [...d.online, id] }))}
-              whileTap={reduce ? undefined : { scale: 0.93 }}
-              transition={spring.bouncy}
-              className={`flex min-h-[4.5rem] items-center gap-2.5 rounded-[1.4rem] border-2 px-3 text-left transition-colors ${
-                on ? 'border-sky bg-sky/45' : 'border-line bg-white/85 hover:bg-white'
-              }`}
-            >
-              <motion.span
-                animate={reduce ? undefined : { rotate: on ? 360 : 0 }}
-                transition={spring.gentle}
-                className="grid size-10 shrink-0 place-items-center rounded-full bg-white text-ink shadow-[var(--shadow-soft)]"
-                aria-hidden
-              >
-                <Icon size={19} />
-              </motion.span>
-              <span className="min-w-0">
-                <span className="block font-display text-[15px] leading-snug font-semibold text-ink">{ONLINE_LABEL[id]}</span>
-                <span className="block text-xs text-ink-soft">{time}</span>
-              </span>
-            </motion.button>
-          )
-        })}
-      </motion.div>
+      <ChoiceGrid
+        label={t('ช่วงเวลาที่ออนไลน์', 'Times you are online')}
+        choices={SLOT_OPTIONS.map(({ id, Icon, time }) => ({ value: id, label: ONLINE_LABEL[id], icon: <Icon size={18} strokeWidth={2.2} />, hint: time }))}
+        selected={draft.online}
+        onToggle={(value) => {
+          const id = value as OnlineSlot
+          update((d) => ({ online: d.online.includes(id) ? d.online.filter((s) => s !== id) : [...d.online, id] }))
+        }}
+        color="sky"
+      />
 
       {/* every slot on: one rainbow "24 ชั่วโมง" (the profile shows just that, not four chips) */}
       <AnimatePresence initial={false}>

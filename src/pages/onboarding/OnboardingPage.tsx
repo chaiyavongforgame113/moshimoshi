@@ -1,10 +1,11 @@
 import { AnimatePresence, MotionConfig, motion, type Variants } from 'motion/react'
-import { ArrowRight, Check, ChevronLeft, MoonStar, PartyPopper } from 'lucide-react'
+import { ArrowRight, Check, ChevronLeft, MoonStar } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import type { MochiExpression } from '@/components/three'
 import { Avatar, IconButton, LangToggle } from '@/components/ui'
 import { useDataMode, useDataReady, useRooms, useServerFeatures } from '@/data/hooks'
+import { OWN_PROMPT_ID } from '@/data/tags'
 import { useIsDesktop } from '@/lib/hooks'
 import { getLang, t } from '@/lib/i18n'
 import { ease, spring } from '@/lib/motion'
@@ -16,12 +17,14 @@ import {
   cleanPrompts,
   defaultRooms,
   initialDraft,
+  knownRooms,
   isOptional,
   lookPatch,
   questionCount,
   questionOf,
   SCREEN_ORDER,
   screenFlow,
+  textLength,
   validate,
   type Draft,
   type DraftPatch,
@@ -29,7 +32,7 @@ import {
   type ScreenKey,
   type StepCheck,
 } from './model'
-import { mascotLine, mascotReaction, screenLabel } from './options'
+import { mascotLine, mascotReaction, reactsOn, screenLabel } from './options'
 import { useDebounced, useFlash } from './parts/hooks'
 import { MascotSays } from './parts/MascotSays'
 import { PreviewPanel } from './parts/PreviewPanel'
@@ -133,6 +136,14 @@ function Onboarding() {
     if (was.loves.length < draft.loves.length || was.tags.length < draft.tags.length || was.lifeStages.length < draft.lifeStages.length) flash('happy', 700)
   }, [draft, flash])
 
+  // the rooms screen always opens with rooms joined for them. goTo picks on the way in; this covers a
+  // room list that arrives later (a slow or late load, a restored draft, picks whose rooms closed).
+  // Never over their own choice: once they tap a room, roomsTouched stops it.
+  useEffect(() => {
+    if (screen !== 'rooms' || draft.roomsTouched || !rooms.length || knownRooms(draft.rooms, rooms).length) return
+    update((d) => ({ rooms: defaultRooms(d, rooms) }))
+  }, [screen, rooms, draft.roomsTouched, draft.rooms, update])
+
   const done = screen === 'done'
   const flow = screenFlow(draft, flowOptions)
   const at = Math.max(0, flow.indexOf(screen))
@@ -144,8 +155,13 @@ function Onboarding() {
   const line = mascotLine(screen, draft)
   const reaction = mascotReaction(screen, draft, { settledName, settledStory, lookChanged })
   const optional = isOptional(screen, !firstTime)
-  // a server with no rooms yet must not trap anyone on the rooms screen
-  const check: StepCheck = screen === 'rooms' && !rooms.length ? { ok: true } : validate(screen, draft)
+  // rooms: only rooms that still exist count, and a server with no rooms yet must not trap anyone there
+  const check: StepCheck =
+    screen !== 'rooms' ? validate(screen, draft) : rooms.length ? validate(screen, { ...draft, rooms: knownRooms(draft.rooms, rooms) }) : { ok: true }
+  // the story is optional, but a half-written one says what's missing (with a small Skip) instead of offering Skip alone
+  const story = draft.prompts[0]
+  const started =
+    screen === 'story' && (textLength(story?.text ?? '') > 0 || (story?.promptId === OWN_PROMPT_ID && textLength(story.question ?? '') > 0))
 
   // live: leaving early needs a name, and finishes onboarding with what we know so far (no age limit);
   // answers already given are kept, so "ไว้ทีหลัง" never throws anything away. No board post yet.
@@ -164,7 +180,7 @@ function Onboarding() {
       online: draft.online,
       chatStyle: draft.chatStyle,
       ...lifePatch,
-      ...(draft.rooms.length ? { rooms: draft.rooms } : {}),
+      ...(draft.rooms.length ? { rooms: rooms.length ? knownRooms(draft.rooms, rooms) : draft.rooms } : {}),
       ...(firstTime && draft.tags.length ? { bio: autoBio(draft) } : {}),
     })
   }
@@ -190,7 +206,8 @@ function Onboarding() {
       online: draft.online,
       chatStyle: draft.chatStyle,
       ...lifePatch,
-      rooms: draft.rooms,
+      // exactly the rooms they joined here (a pick whose room has since closed is dropped)
+      rooms: rooms.length ? knownRooms(draft.rooms, rooms) : draft.rooms,
       ...(firstTime ? { bio: autoBio(draft) } : {}),
     }
     completeOnboarding(patch)
@@ -214,11 +231,10 @@ function Onboarding() {
   }
 
   const next = () => {
-    if (!check.ok) {
-      setNudge((n) => n + 1)
-      return
-    }
-    advance()
+    if (check.ok) return advance()
+    // untouched optional screen: the one button reads "ข้ามไปก่อน", so Enter skips too
+    if (optional && !started) return advance()
+    setNudge((n) => n + 1)
   }
 
   const back = () => (at === 0 ? navigate(onboarded ? '/app' : '/') : goTo(flow[at - 1]))
@@ -246,17 +262,17 @@ function Onboarding() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // rooms: the button says what it does ("เข้าร่วม 3 ห้อง แล้วไปต่อ"); with no rooms on the server, just Next
+  const joining = screen === 'rooms' ? knownRooms(draft.rooms, rooms).length : 0
   const cta = done
     ? t('ไปคืนนี้กันเลย', 'On to Tonight')
-    : screen === 'rooms'
-      ? t('เสร็จแล้ว!', 'All done!')
+    : joining
+      ? t(`เข้าร่วม ${joining} ห้อง แล้วไปต่อ`, `Join ${joining} ${joining === 1 ? 'room' : 'rooms'} and continue`)
       : screen === 'rules'
         ? t('ตกลง', 'Got it')
         : t('ไปต่อ', 'Next')
   const ctaIcon = done ? (
     <MoonStar size={20} aria-hidden />
-  ) : screen === 'rooms' ? (
-    <PartyPopper size={20} aria-hidden />
   ) : screen === 'rules' ? (
     <Check size={20} strokeWidth={2.6} aria-hidden />
   ) : (
@@ -264,7 +280,8 @@ function Onboarding() {
   )
 
   // phones: the mochi screen is tight, so น้องโมชิ's bubble shrinks and its reply floats over the 3D mochi
-  const tight = !desktop && screen === 'mochi'
+  // the rooms screen needs the height for its cards, too
+  const tight = !desktop && (screen === 'mochi' || screen === 'rooms')
   const stepProps = { draft, update, desktop }
   const stepBody = (() => {
     switch (screen) {
@@ -305,8 +322,8 @@ function Onboarding() {
           sub={line.sub}
           face={line.face}
           reaction={reaction}
+          reacts={reactsOn(screen)}
           focusOnMount={navigated}
-          listening={!done && screen !== 'rules'}
           compact={tight}
         />
         {stepBody}
@@ -324,6 +341,7 @@ function Onboarding() {
       nudge={nudge}
       onNext={next}
       onSkip={optional ? advance : undefined}
+      started={started}
     />
   )
 

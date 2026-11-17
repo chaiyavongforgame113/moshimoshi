@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { Ear, MessageCircleHeart } from 'lucide-react'
+import { MessageCircleHeart } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Avatar, type MochiFace } from '@/components/ui'
 import { t } from '@/lib/i18n'
@@ -12,22 +12,22 @@ interface MascotSaysProps {
   line: string
   sub?: string
   face: MochiFace
-  /** follow-up bubble reacting to what the visitor just did */
+  /** น้องโมชิ reacting to what the visitor just did: takes the helper line's place in the bubble */
   reaction?: string | null
   /** move focus to the heading (after a step change) so screen readers follow along */
   focusOnMount?: boolean
-  /** show the quiet "listening" cue while there's no reply */
-  listening?: boolean
-  /** tighter bubble with no reply slot, for screens that need the room (the reply shows elsewhere) */
+  /** tighter bubble with no reaction, for screens that need the room (the reaction shows elsewhere) */
   compact?: boolean
+  /** the screen reacts to picks: the helper keeps two lines' room, so a reply never pushes the picks down */
+  reacts?: boolean
 }
 
 /**
- * น้องโมชิ talking in a chat thread: the question types itself out
- * (space reserved up front, so nothing jumps), then little reaction
- * bubbles pop in underneath as the visitor fills things in.
+ * น้องโมชิ asking the screen's one question: the mascot, then a bubble with the question (it types
+ * itself out, space reserved up front so nothing jumps) and one short helper line. When น้องโมชิ
+ * reacts to a pick, the reaction takes the helper line's place in the same bubble.
  */
-export function MascotSays({ line, sub, face, reaction, focusOnMount, listening = true, compact = false }: MascotSaysProps) {
+export function MascotSays({ line, sub, face, reaction, focusOnMount, compact = false, reacts = false }: MascotSaysProps) {
   const reduce = useReducedMotion()
   const heading = useRef<HTMLHeadingElement>(null)
   const [typing, setTyping] = useState(!reduce)
@@ -45,7 +45,7 @@ export function MascotSays({ line, sub, face, reaction, focusOnMount, listening 
         </span>
       </div>
 
-      <div className="min-w-0 flex-1 space-y-2">
+      <div className="min-w-0 flex-1">
         <motion.div
           initial={reduce ? false : { opacity: 0, scale: 0.86 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -64,17 +64,8 @@ export function MascotSays({ line, sub, face, reaction, focusOnMount, listening 
             <span className="sr-only">{line}</span>
             <TypedText key={line} text={line} instant={!!reduce} onDone={() => setTyping(false)} />
           </h1>
-          {sub && <p className="mt-1 text-sm text-ink-soft sm:text-[15px]">{sub}</p>}
+          <HelperLine sub={sub} reaction={compact ? null : (reaction ?? null)} reserve={reacts && !compact} />
         </motion.div>
-
-        {/* slot keeps its height so the form below doesn't jump when a reply pops in */}
-        {!compact && (
-          <div aria-live="polite" className={listening ? 'flex min-h-11 items-start' : 'flex items-start'}>
-            <AnimatePresence mode="wait" initial={false}>
-              {reaction ? <ReactionBubble key={reaction} text={reaction} /> : listening && <Listening key="listening" />}
-            </AnimatePresence>
-          </div>
-        )}
       </div>
     </motion.div>
   )
@@ -128,51 +119,51 @@ function TypedText({ text, instant, onDone }: { text: string; instant: boolean; 
   )
 }
 
-/** Quiet "I'm here" state between replies. */
-function Listening() {
-  const reduce = useReducedMotion()
+/**
+ * The bubble's last line: the helper, or น้องโมชิ's reaction in its place. Both sit in one grid
+ * cell; on screens that react it holds two lines from the start (replies are written to fit two),
+ * so neither the typing dots nor the reply move the picks under a finger.
+ */
+function HelperLine({ sub, reaction, reserve }: { sub?: string; reaction: string | null; reserve: boolean }) {
+  if (!sub && !reaction && !reserve) return null
   return (
-    <motion.p
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: { duration: 0.12 } }}
-      transition={{ duration: 0.3, delay: 0.6 }}
-      aria-hidden
-      className="inline-flex h-11 items-center gap-1.5 pl-1 text-xs font-semibold text-ink-soft"
-    >
-      <motion.span
-        className="inline-flex"
-        animate={reduce ? undefined : { rotate: [0, -12, 0, 12, 0] }}
-        transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
-        aria-hidden
-      >
-        <Ear size={14} />
-      </motion.span>
-      {t('น้องโมชิฟังอยู่นะ', 'Little Mochi is listening')}
-    </motion.p>
+    <div className={`mt-1 grid content-start text-sm sm:text-[15px] ${reserve ? 'min-h-[2lh]' : ''}`} aria-live="polite">
+      {sub && (
+        <p className={`col-start-1 row-start-1 text-ink-soft transition-opacity duration-200 ${reaction ? 'invisible opacity-0' : ''}`}>{sub}</p>
+      )}
+      <AnimatePresence initial={false}>{reaction && <Reply key={reaction} text={reaction} />}</AnimatePresence>
+    </div>
   )
 }
 
-function ReactionBubble({ text }: { text: string }) {
+function Reply({ text }: { text: string }) {
   const reduce = useReducedMotion()
   const [ready, setReady] = useState(!!reduce)
   useEffect(() => {
     if (reduce) return
-    const t = window.setTimeout(() => setReady(true), 520)
+    const t = window.setTimeout(() => setReady(true), 480)
     return () => window.clearTimeout(t)
   }, [reduce])
 
   return (
     <motion.p
-      initial={reduce ? false : { opacity: 0, y: 8, scale: 0.9 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.92, transition: { duration: 0.14 } }}
-      transition={spring.bouncy}
-      style={{ originX: 0, originY: 0 }}
-      className="w-fit max-w-full rounded-[1.4rem] rounded-tl-md bg-butter/60 px-4 py-2.5 text-[15px] text-ink shadow-[var(--shadow-soft)]"
+      initial={reduce ? false : { opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, transition: { duration: 0.12 } }}
+      transition={spring.soft}
+      className="col-start-1 row-start-1 text-ink"
     >
       <span className="sr-only">{text}</span>
-      <span aria-hidden>{ready ? text : <TypingDots />}</span>
+      <span aria-hidden>
+        {ready ? (
+          <>
+            <MessageCircleHeart size={15} strokeWidth={2.4} className="mr-1 inline-block -translate-y-px align-middle text-coral-deep" />
+            <span className="rounded-md bg-butter/45 box-decoration-clone px-1 py-0.5">{text}</span>
+          </>
+        ) : (
+          <TypingDots />
+        )}
+      </span>
     </motion.p>
   )
 }

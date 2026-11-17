@@ -1,7 +1,7 @@
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
-import { CornerDownLeft } from 'lucide-react'
+import { ChevronRight, CornerDownLeft } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
-import { Button, leaveField } from '@/components/ui'
+import { leaveField } from '@/components/ui'
 import { t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 
@@ -14,17 +14,35 @@ interface StepActionsProps {
   /** bumps every time the visitor presses next while blocked → wiggle + announce */
   nudge: number
   onNext: () => void
-  /** optional screens: a quiet "ข้ามไปก่อน" next to the main button */
+  /** optional screens: with nothing answered yet, the one button is a calm "ข้ามไปก่อน" */
   onSkip?: () => void
+  /**
+   * optional screens: an answer is under way but not complete yet (a story still too short).
+   * The button then explains what's missing, with a small Skip beside it.
+   */
+  started?: boolean
   variant: 'bar' | 'row'
 }
 
+type Tone = 'primary' | 'skip' | 'calm'
+
+const TONE: Record<Tone, string> = {
+  // coral fill + warm ink text keeps ≥4.5:1 contrast
+  primary: 'border-transparent bg-coral text-ink shadow-[var(--shadow-puffy)] hover:bg-[#ff8a7c]',
+  // optional and untouched: a quiet way on, not a warning
+  skip: 'border-line bg-white/90 text-ink shadow-[var(--shadow-soft)] hover:bg-white',
+  // required and not ready: calm, never a washed-out "broken" coral
+  calm: 'border-transparent bg-ink/10 text-ink-soft',
+}
+
 /**
- * Next button (plus Skip on optional screens). Phones: a frosted bar pinned above the home
- * indicator. Desktop: a sticky row under the form with a keyboard hint.
- * Next never goes truly disabled — pressing it explains what's missing.
+ * One clear button per screen. Phones: a frosted bar pinned above the home indicator.
+ * Desktop: a sticky row under the form with a keyboard hint.
+ * - answered → the primary "ไปต่อ"
+ * - optional and untouched → a calm "ข้ามไปก่อน" that becomes "ไปต่อ" the moment something is picked
+ * - required and not ready → a calm button saying what's missing; pressing it wiggles and explains
  */
-export function StepActions({ label, icon, ok, need, nudge, onNext, onSkip, variant }: StepActionsProps) {
+export function StepActions({ label, icon, ok, need, nudge, onNext, onSkip, started = false, variant }: StepActionsProps) {
   const [scope, animate] = useAnimate<HTMLDivElement>()
   const reduce = useReducedMotion()
 
@@ -33,9 +51,13 @@ export function StepActions({ label, icon, ok, need, nudge, onNext, onSkip, vari
   }, [nudge, reduce, animate, scope])
 
   const bar = variant === 'bar'
-  const text = ok || !bar ? label : (need ?? label)
+  const skipOnly = !ok && !!onSkip && !started
+  const tone: Tone = ok ? 'primary' : skipOnly ? 'skip' : 'calm'
+  const text = ok ? label : skipOnly ? t('ข้ามไปก่อน', 'Skip for now') : bar ? (need ?? label) : label
+  const trailing = ok ? icon : skipOnly ? <ChevronRight size={20} strokeWidth={2.4} className="text-ink-soft" aria-hidden /> : null
 
-  const skip = onSkip && (
+  // a small Skip only while a started answer isn't complete yet (otherwise the main button is Skip)
+  const skip = onSkip && started && !ok && (
     <motion.button
       type="button"
       whileTap={reduce ? undefined : { scale: 0.94, y: 1 }}
@@ -48,19 +70,31 @@ export function StepActions({ label, icon, ok, need, nudge, onNext, onSkip, vari
     </motion.button>
   )
 
-  const next = (
+  const main = (
     <div ref={scope} className={bar ? 'min-w-0 flex-1' : 'shrink-0'}>
-      <Button
-        size="lg"
-        block={bar}
+      <motion.button
+        type="button"
         onPointerDown={leaveField}
-        onClick={onNext}
-        aria-disabled={!ok}
-        iconRight={ok ? icon : undefined}
-        className={`${bar ? 'px-4' : ''} ${ok ? '' : 'opacity-70 saturate-50'}`}
+        onClick={skipOnly ? onSkip : onNext}
+        aria-disabled={tone === 'calm' || undefined}
+        whileHover={reduce || tone === 'calm' ? undefined : { y: -2 }}
+        whileTap={reduce ? undefined : { scale: 0.95, y: 1 }}
+        transition={spring.bouncy}
+        className={`relative inline-flex h-14 items-center justify-center gap-2.5 rounded-full border font-display text-base font-semibold tracking-tight whitespace-nowrap transition-[background-color,color,box-shadow,border-color] duration-200 select-none ${
+          bar ? 'w-full px-4' : 'px-7'
+        } ${TONE[tone]}`}
       >
-        <span className="min-w-0 truncate">{text}</span>
-      </Button>
+        <motion.span
+          key={text}
+          initial={reduce ? false : { opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18 }}
+          className="min-w-0 truncate"
+        >
+          {text}
+        </motion.span>
+        {trailing}
+      </motion.button>
     </div>
   )
 
@@ -77,25 +111,27 @@ export function StepActions({ label, icon, ok, need, nudge, onNext, onSkip, vari
         <div className="pointer-events-none absolute inset-x-0 -top-8 bottom-0 bg-linear-to-t from-cream via-cream/80 to-transparent" aria-hidden />
         <div className="glass pointer-events-auto relative mx-auto flex max-w-xl items-center gap-1.5 rounded-[1.9rem] p-2">
           {skip}
-          {next}
+          {main}
           {live}
         </div>
       </div>
     )
   }
 
+  // desktop: the hint on the left follows the button's state
+  const tipKey = ok ? 'tip' : skipOnly && !nudge ? 'optional' : 'need'
   return (
     <div className="glass sticky bottom-5 z-20 mt-8 flex items-center justify-between gap-3 rounded-full p-2 pl-5">
       <AnimatePresence mode="wait" initial={false}>
         <motion.p
-          key={ok ? 'tip' : 'need'}
+          key={tipKey}
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
           transition={spring.soft}
           className="flex min-w-0 items-center gap-2 text-sm text-ink-soft"
         >
-          {ok ? (
+          {tipKey === 'tip' ? (
             <>
               {t('กด', 'Press')}
               <kbd className="inline-flex h-7 items-center gap-1 rounded-lg border border-line bg-white px-2 font-sans text-xs font-semibold text-ink shadow-[inset_0_-2px_0_rgb(59_38_34/0.08)]">
@@ -103,6 +139,8 @@ export function StepActions({ label, icon, ok, need, nudge, onNext, onSkip, vari
               </kbd>
               {t('เพื่อไปต่อได้นะ', 'to keep going')}
             </>
+          ) : tipKey === 'optional' ? (
+            <span className="truncate">{t('ข้อนี้ข้ามได้ ไว้ค่อยกลับมาตอบทีหลังก็ได้', 'This one is optional. You can come back to it later')}</span>
           ) : (
             <span className="truncate">{need}</span>
           )}
@@ -110,7 +148,7 @@ export function StepActions({ label, icon, ok, need, nudge, onNext, onSkip, vari
       </AnimatePresence>
       <div className="flex shrink-0 items-center gap-1">
         {skip}
-        {next}
+        {main}
       </div>
       {live}
     </div>

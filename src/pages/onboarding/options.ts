@@ -39,7 +39,7 @@ const SCREEN_LABELS: ScreenLabel[] = [
   loc<ScreenLabel>({ key: 'online', label: L('ออนไลน์ช่วงไหน', 'Online times') }),
   loc<ScreenLabel>({ key: 'style', label: L('สไตล์การคุย', 'Chat style') }),
   loc<ScreenLabel>({ key: 'story', label: L('เรื่องเล่า', 'A little story') }),
-  loc<ScreenLabel>({ key: 'rooms', label: L('ห้องที่น่าจะชอบ', 'Rooms') }),
+  loc<ScreenLabel>({ key: 'rooms', label: L('ห้องแชท', 'Chat rooms') }),
   loc<ScreenLabel>({ key: 'done', label: L('พร้อมแล้ว', 'All set') }),
 ]
 
@@ -262,9 +262,10 @@ export function mascotLine(screen: ScreenKey, d: Draft): MascotLine {
         face: 'smile',
       }
     case 'rooms':
+      // rooms are group chats to hop into, not a setting to pick
       return {
-        line: t('เราเลือกห้องที่น่าจะถูกใจไว้ให้แล้ว', 'I picked some rooms you might like'),
-        sub: t('ดูแล้วกดยืนยันได้เลย เข้าออกห้องได้ตลอด', 'Have a look, then confirm. Join or leave rooms anytime'),
+        line: t('เข้าห้องแชทไหนดี?', 'Which chat rooms will you join?'),
+        sub: t('แชทกลุ่มตามเรื่องที่ชอบ เข้าไปทักกันเลย', 'Group chats by topic. Hop in and say hi'),
         face: 'happy',
       }
     default:
@@ -278,14 +279,17 @@ export function mascotLine(screen: ScreenKey, d: Draft): MascotLine {
 
 /** น้องโมชิ's reply to a life stage they just picked (the rest get a general one). */
 const LIFE_REACTION: Record<string, () => string> = {
-  'เพิ่งย้ายมาเมืองนี้': () => t('เมืองใหม่ เพื่อนใหม่ เดี๋ยวพาไปรู้จักคนที่เพิ่งย้ายมาเหมือนกันนะ', "New city, new friends! I'll introduce you to others who just moved too"),
-  'เริ่มงานแรก': () => t('งานแรกตื่นเต้นเนอะ มีเพื่อนวัยเดียวกันคุยด้วยอุ่นใจกว่าเยอะ', 'A first job is exciting! It helps to have friends going through it too'),
-  'ทำงานกะดึก': () => t('ชาวกะดึกมีเยอะกว่าที่คิดนะ ตีสองก็มีคนคุยด้วย', "There are more night-shift folks than you'd think. Someone's up at 2 am too"),
-  'อยู่คนเดียวครั้งแรก': () => t('อยู่คนเดียวครั้งแรก เหงาได้ แต่ไม่ต้องเหงาคนเดียวนะ', "Living alone for the first time can get lonely. You don't have to be lonely alone"),
-  'พ่อแม่มือใหม่': () => t('เก่งมากเลย! เดี๋ยวหาเพื่อนพ่อแม่มือใหม่มาแชร์กันนะ', "You're doing great! I'll find other new parents to swap stories with"),
+  'เพิ่งย้ายมาเมืองนี้': () => t('เมืองใหม่ เพื่อนใหม่ เดี๋ยวพาไปรู้จักคนที่เพิ่งย้ายมาเหมือนกันนะ', "New city, new friends! I'll find others who just moved too"),
+  'เริ่มงานแรก': () => t('งานแรกตื่นเต้นเนอะ มีเพื่อนวัยเดียวกันคุยด้วยอุ่นใจกว่าเยอะ', 'A first job is a big deal! Friends in the same boat help'),
+  'ทำงานกะดึก': () => t('ชาวกะดึกมีเยอะกว่าที่คิดนะ ตีสองก็มีคนคุยด้วย', "More night owls than you'd think. Someone's up at 2 am too"),
+  'อยู่คนเดียวครั้งแรก': () => t('อยู่คนเดียวครั้งแรก เหงาได้ แต่ไม่ต้องเหงาคนเดียวนะ', "Living alone can get lonely. You don't have to be lonely alone"),
+  'พ่อแม่มือใหม่': () => t('เก่งมากเลย! เดี๋ยวหาเพื่อนพ่อแม่มือใหม่มาแชร์กันนะ', "You're doing great! I'll find new parents to swap stories with"),
 }
 
-/** A follow-up chat bubble that reacts to what the visitor just did. */
+/** The screens น้องโมชิ answers picks on (mascotReaction below); the rest never reply. */
+export const reactsOn = (screen: ScreenKey) => screen !== 'rules' && screen !== 'rooms' && screen !== 'done'
+
+/** A follow-up chat bubble that reacts to what the visitor just did. Kept to two lines of the bubble. */
 export function mascotReaction(screen: ScreenKey, d: Draft, ctx: { settledName: string; settledStory: string; lookChanged: boolean }): string | null {
   switch (screen) {
     case 'name': {
@@ -329,11 +333,7 @@ export function mascotReaction(screen: ScreenKey, d: Draft, ctx: { settledName: 
       if (!n) return null
       return n < STORY_MIN ? t('ค่อยๆ พิมพ์ได้เลย ไม่ต้องรีบนะ', 'Take your time, no rush') : t('อ่านแล้วอยากคุยด้วยเลย!', 'Reading that makes me want to chat!')
     }
-    case 'rooms':
-      if (!d.rooms.length) return null
-      return d.rooms.includes('lobby')
-        ? t('ห้องนั่งเล่นเปิดไฟรอแล้ว แวะไปทักทายได้เลยนะ', 'The Lounge lights are on. Drop by and say hi!')
-        : t(`เลือกไว้ ${d.rooms.length} ห้อง เข้าออกได้ตลอดนะ`, `${d.rooms.length} ${d.rooms.length === 1 ? 'room' : 'rooms'} picked. Come and go anytime`)
+    // rooms: no reaction, the helper ("rooms are group chats") stays put and the cards show what's joined
     default:
       return null
   }
