@@ -26,7 +26,7 @@ export function ChatHeader({
   return (
     <header className="safe-top sticky top-0 z-30 flex items-center gap-2 border-b border-line/70 bg-cream/80 px-3 pb-2.5 backdrop-blur-xl lg:static lg:rounded-t-[2rem] lg:bg-white/70 lg:px-5 lg:pt-4 lg:pb-3">
       <Link
-        to="/app/chats"
+        to={waiting ? '/app/chats?tab=sent' : '/app/chats'}
         aria-label={t('กลับไปหน้าแชท', 'Back to chats')}
         className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-white text-ink shadow-[var(--shadow-soft)] transition-transform active:scale-90"
       >

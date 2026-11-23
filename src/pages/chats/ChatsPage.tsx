@@ -1,9 +1,9 @@
 import { motion } from 'motion/react'
 import { MessageCircleHeart, Radio, Send, Star } from 'lucide-react'
 import { useMemo } from 'react'
-import { Link } from 'react-router'
-import { KineticText, Reveal } from '@/components/motion'
-import { Avatar, ButtonLink, PageHeader, Section, ShowMore, SignalMeter } from '@/components/ui'
+import { Link, useSearchParams } from 'react-router'
+import { KineticText } from '@/components/motion'
+import { Avatar, ButtonLink, PageHeader, Section, ShowMore, SignalMeter, Tabs, tabId, tabPanelId, type TabItem } from '@/components/ui'
 import { useChats, useDataReady, useMatches, useMyId, usePeople } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
 import { known, t } from '@/lib/i18n'
@@ -30,8 +30,15 @@ interface Row {
 }
 
 type IsMine = (id: string) => boolean
+type ChatTab = 'chats' | 'sent'
 
 export default function ChatsPage() {
+  const [params, setParams] = useSearchParams()
+  const tab: ChatTab = params.get('tab') === 'sent' ? 'sent' : 'chats'
+  const tabs: TabItem<ChatTab>[] = [
+    { key: 'chats', label: t('แชท', 'Chats') },
+    { key: 'sent', label: t('คำทักที่ส่งไป', 'Sent hellos') },
+  ]
   const ready = useDataReady()
   const chats = useChats()
   const people = usePeople()
@@ -56,7 +63,6 @@ export default function ChatsPage() {
     }
   }, [chats, users, matches, isMine, stars])
 
-  const total = incoming.length + waiting.length + talking.length
   // the chat list starts short, but never hides an unread chat behind "ดูเพิ่ม"
   const lastUnread = talking.reduce((at, r, i) => (r.chat.unread > 0 ? i : at), -1)
   const firstChats = Math.max(FIRST_CHATS, lastUnread + 1)
@@ -64,70 +70,78 @@ export default function ChatsPage() {
   return (
     <div>
       <PageHeader title={<KineticText text={t('แชท', 'Chats')} />} subtitle={t('คุยกับเพื่อนที่คลื่นตรงกัน', 'Talk with friends on your wavelength')} />
+      <Tabs
+        items={tabs}
+        value={tab}
+        idBase="chats"
+        className="mt-2 w-full sm:w-fit"
+        onChange={(next) => setParams((p) => {
+          if (next === 'sent') p.set('tab', next)
+          else p.delete('tab')
+          return p
+        }, { replace: true })}
+      />
 
-      {!ready ? (
-        <ListSkeleton count={3} label={t('กำลังโหลดแชท…', 'Loading chats…')} />
-      ) : total === 0 ? (
-        <EmptyChats />
-      ) : (
-        <>
-          {incoming.length > 0 && (
-            <Section
-              tone="mint"
-              icon={<MessageCircleHeart size={18} strokeWidth={2.4} />}
-              title={t('มีคนทักแชทมา', 'Someone said hi')}
-              note={t('ตอบรับหรือไว้ก่อนก็ได้', 'Accept, or maybe later')}
-            >
-              <motion.div variants={fadeUp} initial="hidden" animate="show">
+      <div role="tabpanel" id={tabPanelId('chats', tab)} aria-labelledby={tabId('chats', tab)}>
+        {!ready ? (
+          <ListSkeleton count={3} label={t('กำลังโหลดแชท…', 'Loading chats…')} />
+        ) : tab === 'sent' ? (
+          <div className="mt-5">
+            {waiting.length ? (
+              <ShowMore
+                items={waiting}
+                initial={FIRST_HELLOS}
+                getKey={(r) => r.chat.id}
+                listClassName="grid gap-3 sm:grid-cols-2"
+                itemClassName="min-w-0"
+                moreLabel={(n) => t(`ดูคำทักเพิ่ม (อีก ${n})`, `Show more hellos (${n} more)`)}
+                render={(r) => <HelloCard row={r} isMine={isMine} />}
+              />
+            ) : (
+              <p className="card p-4 text-sm text-ink-soft">{t('ยังไม่มีคำทักที่รอตอบรับ', 'No sent hellos waiting for a reply.')}</p>
+            )}
+          </div>
+        ) : incoming.length === 0 && talking.length === 0 ? (
+          <EmptyChats />
+        ) : (
+          <>
+            {incoming.length > 0 && (
+              <Section
+                tone="mint"
+                icon={<MessageCircleHeart size={18} strokeWidth={2.4} />}
+                title={t('มีคนทักแชทมา', 'Someone said hi')}
+                note={t('ตอบรับหรือไว้ก่อนก็ได้', 'Accept, or maybe later')}
+              >
+                <motion.div variants={fadeUp} initial="hidden" animate="show">
+                  <ShowMore
+                    items={incoming}
+                    initial={FIRST_HELLOS}
+                    getKey={(r) => r.chat.id}
+                    listClassName="grid gap-3 sm:grid-cols-2"
+                    itemClassName="min-w-0"
+                    moreLabel={(n) => t(`ดูคำทักเพิ่ม (อีก ${n})`, `Show more hellos (${n} more)`)}
+                    render={(r) => <HelloCard row={r} incoming isMine={isMine} />}
+                  />
+                </motion.div>
+              </Section>
+            )}
+
+            {talking.length > 0 && (
+              <motion.div variants={fadeUp} initial="hidden" animate="show" className="mt-5">
                 <ShowMore
-                  items={incoming}
-                  initial={FIRST_HELLOS}
+                  items={talking}
+                  initial={firstChats}
+                  step={FIRST_CHATS}
                   getKey={(r) => r.chat.id}
-                  listClassName="grid gap-3 sm:grid-cols-2"
-                  itemClassName="min-w-0"
-                  moreLabel={(n) => t(`ดูคำทักเพิ่ม (อีก ${n})`, `Show more hellos (${n} more)`)}
-                  render={(r) => <HelloCard row={r} incoming isMine={isMine} />}
+                  listClassName="card space-y-0.5 overflow-hidden rounded-3xl p-1.5"
+                  moreLabel={(n) => t(`ดูแชทเพิ่ม (อีก ${n})`, `Show more chats (${n} more)`)}
+                  render={(r) => <ChatRow row={r} isMine={isMine} userId={userId} starred={stars.has(r.chat.id)} />}
                 />
               </motion.div>
-            </Section>
-          )}
-
-          {talking.length > 0 && (
-            <motion.div variants={fadeUp} initial="hidden" animate="show" className="mt-5">
-              <ShowMore
-                items={talking}
-                initial={firstChats}
-                step={FIRST_CHATS}
-                getKey={(r) => r.chat.id}
-                listClassName="card space-y-0.5 overflow-hidden rounded-3xl p-1.5"
-                moreLabel={(n) => t(`ดูแชทเพิ่ม (อีก ${n})`, `Show more chats (${n} more)`)}
-                render={(r) => <ChatRow row={r} isMine={isMine} userId={userId} starred={stars.has(r.chat.id)} />}
-              />
-            </motion.div>
-          )}
-
-          {waiting.length > 0 && (
-            <Reveal>
-              <Section
-                tone="peach"
-                icon={<Send size={17} strokeWidth={2.4} />}
-                title={t('คำทักที่ส่งไป', 'Hellos you sent')}
-                note={t('รอเขาตอบรับอยู่', 'Waiting for them to accept')}
-              >
-                <ShowMore
-                  items={waiting}
-                  initial={FIRST_HELLOS}
-                  getKey={(r) => r.chat.id}
-                  listClassName="grid gap-3 sm:grid-cols-2"
-                  itemClassName="min-w-0"
-                  moreLabel={(n) => t(`ดูคำทักเพิ่ม (อีก ${n})`, `Show more hellos (${n} more)`)}
-                  render={(r) => <HelloCard row={r} isMine={isMine} />}
-                />
-              </Section>
-            </Reveal>
-          )}
-        </>
-      )}
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }

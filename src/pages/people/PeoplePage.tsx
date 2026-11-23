@@ -1,5 +1,5 @@
 import { motion, useReducedMotion } from 'motion/react'
-import { CircleHelp, Megaphone, Plus, Radio, Sun, UsersRound, Wifi } from 'lucide-react'
+import { CircleHelp, Megaphone, Plus, Radio, Search, Sun, UsersRound, Wifi } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { KineticText } from '@/components/motion'
@@ -12,15 +12,16 @@ import type { MochiColor } from '@/lib/types'
 import { InviteButton } from '@/pages/home/Soft'
 import { useWave, waveHref } from '@/pages/me/wave'
 import { InviteCard } from './InviteCard'
+import { InterestSearch } from './InterestSearch'
 import { PersonRow } from './PersonRow'
 import { SignalInfoSheet } from './SignalScale'
 import { ListSkeleton } from './Skeleton'
-type TabKey = 'wave' | 'invites'
+type TabKey = 'wave' | 'search' | 'invites'
 
 export default function PeoplePage() {
   const [params, setParams] = useSearchParams()
   const requestedTab = params.get('tab')
-  const tab = requestedTab === 'invites' ? 'invites' : 'wave'
+  const tab = requestedTab === 'search' || requestedTab === 'invites' ? requestedTab : 'wave'
   useEffect(() => {
     if (requestedTab !== 'intros') return
     setParams((p) => {
@@ -38,6 +39,7 @@ export default function PeoplePage() {
       (p) => {
         if (next === 'wave') p.delete('tab')
         else p.set('tab', next)
+        if (next !== 'search') p.delete('q')
         return p
       },
       { replace: true },
@@ -45,6 +47,7 @@ export default function PeoplePage() {
 
   const tabs: TabItem<TabKey>[] = [
     { key: 'wave', label: t('คลื่นเดียวกัน', 'Same wavelength'), icon: <Radio size={16} strokeWidth={2.4} /> },
+    { key: 'search', label: t('ค้นหา', 'Search'), icon: <Search size={16} strokeWidth={2.4} /> },
     { key: 'invites', label: t('ชวนเล่น', 'Invites'), icon: <Megaphone size={16} strokeWidth={2.4} /> },
   ]
 
@@ -63,7 +66,7 @@ export default function PeoplePage() {
       <Tabs items={tabs} value={tab} onChange={setTab} idBase={idBase} className="mt-2 w-full sm:w-fit" />
 
       <div role="tabpanel" id={tabPanelId(idBase, tab)} aria-labelledby={tabId(idBase, tab)}>
-        {tab === 'wave' ? <WaveTab /> : <InvitesTab />}
+        {tab === 'wave' ? <WaveTab /> : tab === 'search' ? <InterestSearch /> : <InvitesTab />}
       </div>
 
       <SignalInfoSheet open={infoOpen} onClose={closeInfo} />

@@ -8,11 +8,11 @@ import type { MatchResult, User } from '@/lib/types'
 import { chatToOpen } from '@/pages/chats/lib'
 import { ageLabel, statusLabel } from './lib'
 
-/** The same compact profile summary for the daily pick and the rest of the wavelength list. */
-export function PersonRow({ match, user, myAge }: { match: MatchResult; user: User; myAge: number }) {
+/** Compact profile summary for a recommendation or a manual interest search. */
+export function PersonRow({ match, user, myAge, matchingInterests }: { match?: MatchResult; user: User; myAge: number; matchingInterests?: string[] }) {
   const chat = chatToOpen(useChats(), user.id)
-  const interests = [...new Set([...user.loves, ...user.tags])].flatMap((id) => tagOf(id)?.label ?? []).slice(0, 3)
-  const reasons = match.reasons.slice(0, 2)
+  const interests = matchingInterests ?? [...new Set([...user.loves, ...user.tags])].flatMap((id) => tagOf(id)?.label ?? []).slice(0, 3)
+  const reasons = match?.reasons.slice(0, 2) ?? []
   const profilePath = `/app/people/${user.id}`
   const chatLabel = chat ? t('ไปที่แชท', 'Go to chat') : t('ทักแชท', 'Say hi')
 
@@ -24,19 +24,19 @@ export function PersonRow({ match, user, myAge }: { match: MatchResult; user: Us
         className="group block rounded-2xl"
       >
         <div className="flex items-center gap-2.5">
-          <Avatar color={user.color} size={44} online={user.isOnline} face={user.face ?? (match.level >= 4 ? 'happy' : 'smile')} />
+          <Avatar color={user.color} size={44} online={user.isOnline} face={user.face ?? (match && match.level >= 4 ? 'happy' : 'smile')} />
           <div className="min-w-0 flex-1">
             <h3 className="truncate font-display text-lg leading-tight font-semibold">{user.name}</h3>
             <p className="truncate text-xs text-ink-soft">{[ageLabel(myAge, user.age), known(user.province), statusLabel(user)].filter(Boolean).join(' · ')}</p>
-            <SignalMeter level={match.level} size="xs" className="mt-1" />
+            {match && <SignalMeter level={match.level} size="xs" className="mt-1" />}
           </div>
           <ChevronRight size={18} className="shrink-0 text-ink-soft transition-transform group-hover:translate-x-0.5" aria-hidden />
         </div>
 
         {user.bio.trim() && <p className="mt-2 line-clamp-2 text-sm leading-snug [overflow-wrap:anywhere] text-ink">{user.bio}</p>}
         {interests.length > 0 && (
-          <p className="mt-1 truncate text-xs text-ink-soft">
-            <span className="font-semibold">{t('ชอบ', 'Interests')}</span> · {interests.join(' · ')}
+          <p className={`mt-1 text-xs text-ink-soft ${matchingInterests ? 'line-clamp-2 [overflow-wrap:anywhere]' : 'truncate'}`}>
+            <span className="font-semibold">{matchingInterests ? t('ความสนใจที่ตรงกับคำค้น', 'Matching interests') : t('ชอบ', 'Interests')}</span> · {interests.join(' · ')}
           </p>
         )}
         {reasons.length > 0 && (
