@@ -33,7 +33,7 @@ export default function HomePage() {
 
   const ready = useDataReady()
   const steps = useFirstSteps()
-  const next = useNextStep()
+  const next = useNextStep(steps.myId)
   const showSteps = ready && !steps.stepsClosed && steps.done < FIRST_STEPS_TOTAL
 
   return (
@@ -88,7 +88,7 @@ export default function HomePage() {
 }
 
 /** Home zone 2, "ทำอะไรต่อดี": the first steps until they're done (or hidden), then NextStep. */
-function WhatsNext({ ready, steps, next, showSteps }: { ready: boolean; steps: FirstStepsState; next: Next; showSteps: boolean }) {
+function WhatsNext({ ready, steps, next, showSteps }: { ready: boolean; steps: FirstStepsState; next: Next | null; showSteps: boolean }) {
   const allDone = steps.done === FIRST_STEPS_TOTAL
   const { myId, stepsClosed } = steps
 
@@ -96,15 +96,17 @@ function WhatsNext({ ready, steps, next, showSteps }: { ready: boolean; steps: F
     if (ready && myId && allDone && !stepsClosed) closeFirstSteps(myId)
   }, [ready, myId, allDone, stepsClosed])
 
+  if (ready && !showSteps && !next) return null
+
   return (
     <Block
       id="home-next"
       tone="mint"
       title={t('ทำอะไรต่อดี', "What's next")}
-      note={showSteps ? t('ทำทีละขั้น เดี๋ยวโมชิติ๊กให้เอง', 'One at a time. Mochi ticks them off for you') : t('เรื่องที่น่าทำที่สุดตอนนี้', 'The best thing to do right now')}
+      note={showSteps ? t('ทำทีละขั้น เดี๋ยวโมชิติ๊กให้เอง', 'One at a time. Mochi ticks them off for you') : undefined}
       icon={<Sparkles size={18} strokeWidth={2.4} />}
     >
-      {!ready ? <SoftSkeleton rows={1} /> : showSteps ? <FirstSteps steps={steps} /> : <NextStep next={next} />}
+      {!ready ? <SoftSkeleton rows={1} /> : showSteps ? <FirstSteps steps={steps} /> : next && <NextStep next={next} userId={myId} />}
     </Block>
   )
 }

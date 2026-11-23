@@ -327,17 +327,20 @@ export function liveActions(set: MoshiSet, get: MoshiGet, demo: MoshiActions): P
         })
     },
 
-    toggleGoing: (sessionId) => {
+    toggleGoing: async (sessionId) => {
       if (!isServerId(sessionId)) return demo.toggleGoing(sessionId)
       const me = myId()
       const on = !get().going.includes(sessionId)
       set((s) => ({ going: setIn(s.going, sessionId, on) }))
-      ;(on ? w.rsvp(sessionId, me) : w.unrsvp(sessionId, me))
-        .then(() => emitChange({ table: 'session_rsvps', type: on ? 'INSERT' : 'DELETE', row: { session_id: sessionId, user_id: me } }))
-        .catch((err) => {
-          set((s) => ({ going: setIn(s.going, sessionId, !on) }))
-          fail(err)
-        })
+      try {
+        await (on ? w.rsvp(sessionId, me) : w.unrsvp(sessionId, me))
+        emitChange({ table: 'session_rsvps', type: on ? 'INSERT' : 'DELETE', row: { session_id: sessionId, user_id: me } })
+        return true
+      } catch (err) {
+        set((s) => ({ going: setIn(s.going, sessionId, !on) }))
+        fail(err)
+        return false
+      }
     },
 
     sendMoshi: (userId, opener) => {

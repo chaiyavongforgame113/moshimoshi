@@ -87,7 +87,7 @@ export interface MoshiState {
   /** change one of my posts (it keeps its id and who said "ฉันด้วย") */
   updateIntent: (id: string, intent: IntentDraft) => void
   toggleJoinIntent: (id: string) => void
-  toggleGoing: (sessionId: string) => void
+  toggleGoing: (sessionId: string) => Promise<boolean>
   /** returns the chat id (live: may be a temporary id until the server answers; useChat resolves it) */
   sendMoshi: (userId: string, opener: string) => string
   /** answer a moshi someone sent me (live only; demo chats have no status) */
@@ -368,8 +368,10 @@ export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
       set((s) => ({
         joinedIntentIds: s.joinedIntentIds.includes(id) ? s.joinedIntentIds.filter((x) => x !== id) : [...s.joinedIntentIds, id],
       })),
-    toggleGoing: (sessionId) =>
-      set((s) => ({ going: s.going.includes(sessionId) ? s.going.filter((x) => x !== sessionId) : [...s.going, sessionId] })),
+    toggleGoing: async (sessionId) => {
+      set((s) => ({ going: s.going.includes(sessionId) ? s.going.filter((x) => x !== sessionId) : [...s.going, sessionId] }))
+      return true
+    },
     sendMoshi: (userId, opener) => {
       const existing = get().chats.find((c) => c.withUserId === userId)
       if (existing) {

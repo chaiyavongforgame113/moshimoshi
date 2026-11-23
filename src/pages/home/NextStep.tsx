@@ -1,107 +1,58 @@
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { CalendarClock, DoorOpen, MessageCircle, MessageCircleHeart, Radio, Sparkles } from 'lucide-react'
-import { useMemo, type ReactNode } from 'react'
+import { CalendarClock, DoorOpen, Radio } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { Avatar, ButtonLink, ReasonIcon, RoomIcon, SignalMeter } from '@/components/ui'
-import { useChats, useDailyPick, useIntroRequests, useIntroWith, usePerson, useRoom, useSessions } from '@/data/hooks'
+import { useChats, usePerson, useRoom, useSessions, useWavelengthMatches } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
 import { eventPhase, eventWhenLabel, formatCountdown } from '@/lib/events'
-import { known, t } from '@/lib/i18n'
-import { spring } from '@/lib/motion'
+import { t } from '@/lib/i18n'
+import { markFirstEventDone, markWavelengthExplored, useProgress } from '@/lib/progress'
 import { useMoshi } from '@/lib/store'
-import type { Chat, IntroRequest, MatchResult, MochiColor, Session } from '@/lib/types'
-import { IntroAnswer } from '@/pages/people/IncomingIntro'
-import { chatPhase, chatToOpen, previewText, setAside } from '@/pages/chats/lib'
-import { OpenDot } from '@/pages/events/EventCard'
-import { bySoonest, eventPath, useEventHref, useEventsNow } from '@/pages/events/lib'
+import type { MatchResult, MochiColor, Session } from '@/lib/types'
+import { liveOrSoon, useEventHref, useEventsNow } from '@/pages/events/lib'
 import { RsvpButton } from '@/pages/events/Rsvp'
-import { introOffered, useMochiReasons } from '@/pages/people/intro'
-import { IntroButton } from '@/pages/people/IntroButton'
-import { MochiReasonList } from '@/pages/people/IntroReasons'
-import { useIsMine } from '@/pages/people/lib'
-import { ageLabel, roomLabel } from './greeting'
-import { InviteButton } from './Soft'
+import { roomLabel } from './greeting'
 
 export type Next =
-  | { kind: 'hello'; chat: Chat }
-  | { kind: 'intro'; intro: IntroRequest }
-  | { kind: 'unread'; chat: Chat; others: number }
-  | { kind: 'live'; session: Session; why: 'going' | 'room' }
-  | { kind: 'pick'; match: MatchResult }
-  | { kind: 'upcoming'; session: Session }
-  | { kind: 'invite' }
+  | { kind: 'wavelength'; match?: MatchResult }
+  | { kind: 'event'; session?: Session }
 
-/**
- * The one most important thing right now, in this order: someone said hi / Mochi wants me to meet
- * someone (an intro waiting for my answer) / unread messages →
- * an event I'm going to (or one in my rooms) is live → today's wavelength pick (until we're
- * chatting: the pick stays the same all day, and saying hi again isn't a next step) → the next
- * event I haven't RSVP'd to → invite a friend.
- */
-export function useNextStep(): Next {
+/** After the tutorial, suggest one Wavelength visit and one event. */
+export function useNextStep(userId: string): Next | null {
+  const progress = useProgress(userId)
+  const matches = useWavelengthMatches()
   const chats = useChats()
-  const isMine = useIsMine()
   const sessions = useSessions()
-  // re-decides right when an event opens or closes
   const now = useEventsNow(sessions)
   const going = useMoshi((s) => s.going)
-  const myRooms = useMoshi((s) => s.me.rooms)
-  const pick = useDailyPick()
-  const introIn = useIntroRequests().incoming[0]
+  const rooms = useMoshi((s) => s.me.rooms)
 
-  return useMemo<Next>(() => {
-    const open = chats.filter((c) => !setAside(c, isMine))
-    const hello = open.find((c) => chatPhase(c) === 'incoming')
-    if (hello) return { kind: 'hello', chat: hello }
-    if (introIn) return { kind: 'intro', intro: introIn }
-    const unread = open.filter((c) => c.unread > 0)
-    if (unread.length) return { kind: 'unread', chat: unread[0], others: unread.length - 1 }
+  if (!progress.wavelengthExplored) {
+    const chattedWith = new Set(chats.map((chat) => chat.withUserId))
+    return { kind: 'wavelength', match: matches.find((match) => !chattedWith.has(match.userId)) }
+  }
+  if (progress.firstEventDone || going.length > 0) return null
 
-    const live = sessions.filter((s) => eventPhase(s, now) === 'open')
-    const mineLive = live.find((s) => going.includes(s.id)) ?? live.find((s) => myRooms.includes(s.roomId))
-    if (mineLive) return { kind: 'live', session: mineLive, why: going.includes(mineLive.id) ? 'going' : 'room' }
-
-    if (pick && !chatToOpen(chats, pick.userId)) return { kind: 'pick', match: pick }
-
-    const soonest = sessions.filter((s) => !going.includes(s.id) && eventPhase(s, now) === 'upcoming').sort(bySoonest(now))[0]
-    if (soonest) return { kind: 'upcoming', session: soonest }
-    return { kind: 'invite' }
-  }, [chats, isMine, sessions, going, myRooms, pick, now, introIn])
+  const available = liveOrSoon(sessions, now)
+  const session = available.find((event) => eventPhase(event, now) === 'open' && rooms.includes(event.roomId))
+    ?? available.find((event) => eventPhase(event, now) === 'upcoming')
+    ?? available[0]
+  return { kind: 'event', session }
 }
 
-const keyOf = (n: Next) => {
-  if (n.kind === 'hello' || n.kind === 'unread') return `${n.kind}:${n.chat.id}`
-  if (n.kind === 'intro') return `intro:${n.intro.id}`
-  if (n.kind === 'live' || n.kind === 'upcoming') return `${n.kind}:${n.session.id}`
-  if (n.kind === 'pick') return `pick:${n.match.userId}`
-  return 'invite'
-}
-
-/** Home zone 2 for people past their first steps: one card, one main button. */
-export function NextStep({ next }: { next: Next }) {
-  const reduce = useReducedMotion()
+export function NextStep({ next, userId }: { next: Next; userId: string }) {
+  if (next.kind === 'wavelength') return <WavelengthCard match={next.match} onExplore={() => markWavelengthExplored(userId)} />
+  if (next.session) return <EventCard session={next.session} onDone={() => markFirstEventDone(userId)} />
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={keyOf(next)}
-        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={reduce ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.98 }}
-        transition={spring.soft}
-      >
-        {next.kind === 'hello' && <ChatCard chat={next.chat} hello />}
-        {next.kind === 'intro' && <IntroCard intro={next.intro} />}
-        {next.kind === 'unread' && <ChatCard chat={next.chat} others={next.others} />}
-        {next.kind === 'live' && <EventCard session={next.session} why={next.why} />}
-        {next.kind === 'pick' && <PickCard match={next.match} />}
-        {next.kind === 'upcoming' && <EventCard session={next.session} />}
-        {next.kind === 'invite' && <InviteCard />}
-      </motion.div>
-    </AnimatePresence>
+    <Card
+      color="lavender"
+      eyebrow={t('ขั้นที่ 2 จาก 2 · อีเวนต์', '2 of 2 · Event')}
+      visual={<Avatar color="lavender" size={48} face="happy" />}
+      title={t('ยังไม่มีอีเวนต์เร็วๆ นี้', 'No events coming up yet')}
+      actions={<ButtonLink to="/app/rooms?tab=events">{t('ดูอีเวนต์', 'Browse events')}</ButtonLink>}
+    />
   )
 }
-
-// ------------------------------------------------------------------ the card shell
 
 function Card({
   eyebrow,
@@ -138,183 +89,25 @@ function Card({
   )
 }
 
-// ------------------------------------------------------------------ kinds
 
-function ChatCard({ chat, hello = false, others = 0 }: { chat: Chat; hello?: boolean; others?: number }) {
-  const u = usePerson(chat.withUserId)
-  const isMine = useIsMine()
-  const name = u?.name ?? t('เพื่อนใหม่', 'A new friend')
-  const preview = previewText(chat, isMine)
+function WavelengthCard({ match, onExplore }: { match?: MatchResult; onExplore: () => void }) {
+  const person = usePerson(match?.userId)
+  const reason = match?.reasons[0]
   return (
     <Card
-      color={u?.color ?? 'peach'}
-      eyebrow={
-        <>
-          <MessageCircleHeart size={14} strokeWidth={2.4} aria-hidden />
-          {hello ? t('มีคนทักมา', 'Someone said hi') : t('ข้อความใหม่', 'New messages')}
-        </>
-      }
-      visual={<Avatar color={u?.color ?? 'peach'} size={52} face="happy" online={u?.isOnline} />}
-      title={
-        hello
-          ? t(`${name} ทักแชทมา`, `${name} said hi`)
-          : chat.unread > 1
-            ? t(`${name} ส่งข้อความมา ${chat.unread} ข้อความ`, `${chat.unread} new messages from ${name}`)
-            : t(`${name} ส่งข้อความมา`, `A new message from ${name}`)
-      }
-      line={others > 0 ? t(`และมีแชทอื่นรออีก ${others} แชท`, `${others} more ${others === 1 ? 'chat is' : 'chats are'} waiting too`) : undefined}
+      color={person?.color ?? 'pink'}
+      eyebrow={t('ขั้นที่ 1 จาก 2 · คลื่นเดียวกัน', '1 of 2 · Wavelength')}
+      visual={<Avatar color={person?.color ?? 'pink'} size={48} face="happy" online={person?.isOnline} />}
+      title={person ? t(`รู้จัก ${person.name} กันไหม`, `Meet ${person.name}`) : t('ไปหาคนคลื่นเดียวกัน', 'Find people on your wavelength')}
+      line={person ? t('คนที่คลื่นตรงกับเรา', 'Someone on your wavelength') : undefined}
       actions={
-        <ButtonLink to={`/app/chats/${chat.id}`} icon={<MessageCircle size={18} />} className="w-full sm:w-auto">
-          {hello ? t('ไปตอบเลย', 'Reply') : t('เปิดแชท', 'Open chat')}
+        <ButtonLink to={person ? `/app/people/${person.id}` : '/app/people'} onClick={onExplore} icon={<Radio size={18} aria-hidden />}>
+          {person ? t('ดูโปรไฟล์', 'View profile') : t('ดูคนคลื่นเดียวกัน', 'Explore Wavelength')}
         </ButtonLink>
       }
     >
-      <p className="line-clamp-2 rounded-2xl rounded-tl-md bg-cream px-3.5 py-2.5 text-sm break-words text-ink">{preview}</p>
-    </Card>
-  )
-}
-
-/** Mochi wants me to meet someone: who, Mochi's top reasons, and the answer right here. */
-function IntroCard({ intro }: { intro: IntroRequest }) {
-  const u = usePerson(intro.withUserId)
-  const me = useMoshi((s) => s.me)
-  const reasons = useMochiReasons(intro.withUserId, 2)
-  if (!u) return <InviteCard />
-  return (
-    <Card
-      color={u.color}
-      eyebrow={
-        <>
-          <Sparkles size={14} strokeWidth={2.4} aria-hidden />
-          {t('น้องโมชิมีเพื่อนจะแนะนำ', 'Little Mochi has someone for you')}
-        </>
-      }
-      visual={
-        <Link to={`/app/people/${u.id}`} className="block rounded-full" aria-label={t(`ดูโปรไฟล์ ${u.name}`, `View ${u.name}'s profile`)}>
-          <Avatar color={u.color} size={56} face="happy" online={u.isOnline} />
-        </Link>
-      }
-      title={t(`โมชิอยากแนะนำ ${u.name} ให้รู้จัก`, `Mochi would love for you to meet ${u.name}`)}
-      line={`${ageLabel(me.age, u.age)} · ${known(u.province)}`}
-      actions={<IntroAnswer intro={intro} name={u.name} className="w-full" />}
-    >
-      <MochiReasonList reasons={reasons} />
-    </Card>
-  )
-}
-
-function EventCard({ session: s, why }: { session: Session; why?: 'going' | 'room' }) {
-  const room = useRoom(s.roomId)
-  const now = useEventsNow([s])
-  const open = eventPhase(s, now) === 'open'
-  const href = useEventHref()(s, now)
-  const going = useMoshi((state) => state.going.includes(s.id))
-  const count = s.going + (going ? 1 : 0)
-  const eyebrow = open
-    ? why === 'going'
-      ? t('อีเวนต์ที่เราจะไปเปิดแล้ว', "An event you're going to is open")
-      : why === 'room'
-        ? t('ห้องของเรามีอีเวนต์เปิดอยู่', 'An event is open in one of your rooms')
-        : t('เปิดอยู่ตอนนี้', 'Open right now')
-    : t('อีเวนต์ถัดไป', 'Next event')
-  return (
-    <Card
-      color={room?.color ?? 'lavender'}
-      eyebrow={
-        <>
-          {open ? <LivePill /> : <CalendarClock size={14} strokeWidth={2.4} aria-hidden />}
-          {eyebrow}
-        </>
-      }
-      visual={room ? <RoomIcon room={room} size={52} /> : <Avatar color="lavender" size={52} face="happy" />}
-      title={
-        <Link to={href} className="rounded-md hover:underline hover:decoration-2 hover:underline-offset-4">
-          {s.title}
-        </Link>
-      }
-      line={
-        <>
-          {open ? formatCountdown(s, now) : `${eventWhenLabel(s.startsAt, now)} · ${formatCountdown(s, now)}`}
-          {room && ` · ${roomLabel(room.name)}`}
-          {count > 0 && ` · ${open ? t(`${count} คนมาแล้ว`, `${count} here`) : t(`${count} คนจะไป`, `${count} going`)}`}
-        </>
-      }
-      actions={
-        open ? (
-          <ButtonLink to={href} icon={<DoorOpen size={18} />} className="w-full sm:w-auto">
-            {t('เข้าห้องเลย', 'Go in now')}
-            {/* the event's name, for screen readers: the visible words still start the link's name */}
-            <span className="sr-only">{t(` ${s.title}`, `: ${s.title}`)}</span>
-          </ButtonLink>
-        ) : (
-          <>
-            <RsvpButton
-              session={s}
-              going={false}
-              onToggle={() => {
-                const state = useMoshi.getState()
-                if (!state.going.includes(s.id)) state.toggleGoing(s.id)
-              }}
-              size="lg"
-              className="w-full sm:w-auto"
-            />
-            <ButtonLink to={eventPath(s.id)} variant="ghost" className="w-full sm:w-auto">
-              {t('ดูอีเวนต์', 'See the event')}
-            </ButtonLink>
-          </>
-        )
-      }
-    />
-  )
-}
-
-function PickCard({ match: m }: { match: MatchResult }) {
-  const u = usePerson(m.userId)
-  const me = useMoshi((s) => s.me)
-  const chatId = chatToOpen(useChats(), m.userId)?.id
-  // the gentle way in ("ให้โมชิแนะนำให้") takes the place of "ดูโปรไฟล์" (the mochi opens the profile too)
-  const intro = introOffered(useIntroWith(m.userId).state)
-  if (!u) return <InviteCard />
-  const reason = m.reasons[0]
-  return (
-    <Card
-      color={u.color}
-      eyebrow={
-        <>
-          <Radio size={14} strokeWidth={2.4} aria-hidden />
-          {t('คลื่นของวันนี้', "Today's wavelength")}
-        </>
-      }
-      visual={
-        <Link to={`/app/people/${u.id}`} className="block rounded-full" aria-label={t(`ดูโปรไฟล์ ${u.name}`, `View ${u.name}'s profile`)}>
-          <Avatar color={u.color} size={56} face="happy" online={u.isOnline} />
-        </Link>
-      }
-      title={u.name}
-      line={`${ageLabel(me.age, u.age)} · ${known(u.province)}`}
-      actions={
-        <>
-          {chatId ? (
-            <ButtonLink to={`/app/chats/${chatId}`} icon={<MessageCircle size={18} />} className="w-full sm:w-auto">
-              {t('ไปที่แชท', 'Go to chat')}
-            </ButtonLink>
-          ) : (
-            <ButtonLink to={`/app/people/${u.id}?send=1`} icon={<MessageCircleHeart size={18} />} className="w-full sm:w-auto">
-              {t('ทักแชท', 'Say hi')}
-            </ButtonLink>
-          )}
-          {intro ? (
-            <IntroButton userId={u.id} />
-          ) : (
-            <ButtonLink to={`/app/people/${u.id}`} variant="ghost" className="w-full sm:w-auto">
-              {t('ดูโปรไฟล์', 'View profile')}
-            </ButtonLink>
-          )}
-        </>
-      }
-    >
-      <SignalMeter level={m.level} size="sm" />
-      {reason && (
+      {person && match && <SignalMeter level={match.level} size="sm" />}
+      {person && reason && (
         <p className="mt-2 flex items-start gap-2 text-sm text-ink">
           <ReasonIcon kind={reason.kind} />
           <span className="min-w-0 break-words">{reason.text}</span>
@@ -324,24 +117,42 @@ function PickCard({ match: m }: { match: MatchResult }) {
   )
 }
 
-function InviteCard() {
+function EventCard({ session, onDone }: { session: Session; onDone: () => void }) {
+  const room = useRoom(session.roomId)
+  const now = useEventsNow([session])
+  const open = eventPhase(session, now) === 'open'
+  const href = useEventHref()(session, now)
   return (
     <Card
-      color="butter"
-      eyebrow={t('ตอนนี้ยังเงียบๆ อยู่', "It's quiet right now")}
-      visual={<Avatar color="peach" size={52} face="wink" />}
-      title={t('ชวนเพื่อนมาเล่นด้วยกันไหม', 'Invite a friend along?')}
-      line={t('ยิ่งเพื่อนมาเยอะ ก็ยิ่งเจอคนคลื่นเดียวกันง่ายขึ้นนะ', 'The more friends join, the easier it is to find your wavelength')}
-      actions={<InviteButton variant="primary" className="w-full sm:w-auto" />}
+      color={room?.color ?? 'lavender'}
+      eyebrow={<><CalendarClock size={14} aria-hidden />{t('ขั้นที่ 2 จาก 2 · อีเวนต์', '2 of 2 · Event')}</>}
+      visual={room ? <RoomIcon room={room} size={48} /> : <Avatar color="lavender" size={48} face="happy" />}
+      title={<Link to={href} onClick={open ? onDone : undefined} className="rounded-md hover:underline">{session.title}</Link>}
+      line={
+        <>
+          {open ? formatCountdown(session, now) : eventWhenLabel(session.startsAt, now)}
+          {room && ` · ${roomLabel(room.name)}`}
+        </>
+      }
+      actions={
+        open ? (
+          <ButtonLink to={href} onClick={onDone} icon={<DoorOpen size={18} aria-hidden />}>
+            {t('เข้าห้องเลย', 'Go in now')}
+          </ButtonLink>
+        ) : (
+          <>
+            <RsvpButton
+              session={session}
+              going={false}
+              onToggle={async () => {
+                const state = useMoshi.getState()
+                if (!state.going.includes(session.id) && await state.toggleGoing(session.id)) onDone()
+              }}
+            />
+            <ButtonLink to={href} variant="ghost">{t('ดูอีเวนต์', 'See the event')}</ButtonLink>
+          </>
+        )
+      }
     />
-  )
-}
-
-function LivePill() {
-  return (
-    <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-mint px-2 font-display text-[11px] font-bold tracking-wide text-ink">
-      <OpenDot />
-      {t('เปิดอยู่', 'OPEN')}
-    </span>
   )
 }

@@ -21,6 +21,8 @@ export interface Progress {
   stepsClosed?: boolean
   /** The follow-up after completing first steps has been dismissed or acted on. */
   stepsFollowUpSeen?: boolean
+  wavelengthExplored?: boolean
+  firstEventDone?: boolean
 }
 
 const EMPTY: Progress = {}
@@ -74,6 +76,8 @@ function writeProgress(userId: string, patch: Progress) {
 export const markRoomMessageSent = (userId: string) => writeProgress(userId, { roomMessage: true })
 export const closeFirstSteps = (userId: string) => writeProgress(userId, { stepsClosed: true })
 export const dismissFirstStepsFollowUp = (userId: string) => writeProgress(userId, { stepsFollowUpSeen: true })
+export const markWavelengthExplored = (userId: string) => writeProgress(userId, { wavelengthExplored: true })
+export const markFirstEventDone = (userId: string) => writeProgress(userId, { firstEventDone: true })
 
 export function toggleChatStar(userId: string, chatId: string) {
   const stored = readProgress(userId).starredChats

@@ -2,7 +2,7 @@ import { MessageCircle, Radio } from 'lucide-react'
 import { Avatar, Button, ButtonLink, Sheet } from '@/components/ui'
 import { useChats, usePerson, useWavelengthMatches } from '@/data/hooks'
 import { t } from '@/lib/i18n'
-import { dismissFirstStepsFollowUp } from '@/lib/progress'
+import { dismissFirstStepsFollowUp, markWavelengthExplored } from '@/lib/progress'
 import type { Chat } from '@/lib/types'
 import { chatPhase } from '@/pages/chats/lib'
 import { useIsMine } from '@/pages/people/lib'
@@ -45,7 +45,10 @@ export function FirstStepsFollowUp({ userId, open }: { userId: string; open: boo
         <p className="min-w-0 text-sm text-ink-soft">{detail}</p>
       </div>
       <div className="mt-4 flex flex-col gap-1">
-        <ButtonLink to={to} onClick={dismiss} icon={waiting ? <MessageCircle size={18} /> : <Radio size={18} />}>
+        <ButtonLink to={to} onClick={() => {
+          dismiss()
+          if (!waiting) markWavelengthExplored(userId)
+        }} icon={waiting ? <MessageCircle size={18} /> : <Radio size={18} />}>
           {label}
         </ButtonLink>
         <Button variant="ghost" onClick={dismiss}>
