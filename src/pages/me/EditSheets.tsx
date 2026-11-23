@@ -17,7 +17,7 @@ import {
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import type { MochiColor, OnlineSlot } from '@/lib/types'
-import { MAX_STYLES } from '@/pages/onboarding/model'
+import { BIO_MAX, MAX_STYLES } from '@/pages/onboarding/model'
 import { SLOT_OPTIONS } from '@/pages/onboarding/options'
 import { ColorSwatches } from './ColorSwatches'
 import { StoriesWizard } from './StoriesWizard'
@@ -29,7 +29,6 @@ const field =
   'mt-1.5 block w-full rounded-2xl border border-line bg-white px-4 py-3 text-ink shadow-[inset_0_2px_4px_rgb(59_38_34/0.04)] placeholder:text-ink-faint focus:border-lavender'
 
 const NAME_MAX = 20
-const BIO_MAX = 120
 
 /**
  * Every edit sheet of my profile; each form mounts fresh on open. Sheets with several

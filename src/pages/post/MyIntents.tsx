@@ -61,14 +61,14 @@ function MyIntentRow({ intent: i, editing }: { intent: Intent; editing: boolean 
             <tpl.Icon size={17} strokeWidth={2.4} />
           </span>
         )}
-        <Link to={`/app/post?edit=${i.id}`} aria-label={t(`แก้ไขโพสต์ "${i.text}"`, `Edit post "${i.text}"`)} className="min-w-0 flex-1 rounded-xl outline-offset-2">
+        <Link to={`/app/people/invites/compose?edit=${i.id}`} aria-label={t(`แก้ไขโพสต์ "${i.text}"`, `Edit post "${i.text}"`)} className="min-w-0 flex-1 rounded-xl outline-offset-2">
           <span className="block truncate text-sm font-semibold">{i.text}</span>
           <span className="flex items-center gap-1 text-xs text-ink-soft">
             <Clock3 size={12} aria-hidden /> {whenText(i.when, i.whenLabel)}
           </span>
           <ReactedBadge kind="metoo" ids={i.joinedBy} className="mt-1.5" />
         </Link>
-        <Link to={`/app/post?edit=${i.id}`} aria-hidden tabIndex={-1} className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-ink hover:bg-ink/5">
+        <Link to={`/app/people/invites/compose?edit=${i.id}`} aria-hidden tabIndex={-1} className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-ink hover:bg-ink/5">
           <Pencil size={17} />
         </Link>
         <IconButton label={t(`เอาโพสต์ "${i.text}" ลง`, `Take down "${i.text}"`)} variant="ghost" aria-expanded={asking} onClick={() => setAsking((v) => !v)}>

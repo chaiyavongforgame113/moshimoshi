@@ -256,6 +256,12 @@ export async function respondMoshi(chatId: string, accept: boolean) {
   check(await db().rpc('respond_moshi', { p_chat: chatId, accept }))
 }
 
+export async function closeChat(chatId: string): Promise<string> {
+  const closedAt = check(await db().rpc('close_chat', { p_chat: chatId }))
+  if (!closedAt) throw new Error('chat_not_active')
+  return closedAt
+}
+
 export async function markChatRead(chatId: string) {
   check(await db().rpc('mark_chat_read', { p_chat: chatId }))
 }

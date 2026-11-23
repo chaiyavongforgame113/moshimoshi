@@ -59,7 +59,7 @@ export function RouteError() {
             {t('ลองใหม่', 'Try again')}
           </Button>
           <Button variant="ghost" onClick={() => window.location.assign('/app')}>
-            {t('กลับหน้าคืนนี้', 'Back to Tonight')}
+            {t('กลับหน้าโมชิของเรา', 'Back to My Moshi')}
           </Button>
         </div>
       </div>

@@ -285,6 +285,7 @@ export function toChat(
     icebreaker: opt(chat.icebreaker),
     unread,
     status: chat.status === 'active' || chat.status === 'ended' ? chat.status : 'pending',
+    ...(chat.closed_at ? { closedAt: chat.closed_at } : {}),
     requestedBy: chat.requested_by,
     consent: { me: !!mine?.consent_media, them: !!other?.consent_media },
     ...(chat.kind === 'intro' ? { kind: 'intro' as const } : {}),

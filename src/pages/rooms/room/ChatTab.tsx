@@ -1,11 +1,10 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { Check, ChevronUp, Hand, MessageCircleQuestion, PartyPopper } from 'lucide-react'
+import { Check, ChevronUp, Hand, PartyPopper } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { Avatar, Button } from '@/components/ui'
-import { useDailyQuestion, usePeople } from '@/data/hooks'
+import { usePeople } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
-import { flags } from '@/lib/flags'
 import { useIsDesktop } from '@/lib/hooks'
 import { displayName, getLang, known, t } from '@/lib/i18n'
 import { fadeUp, spring, stagger } from '@/lib/motion'
@@ -49,13 +48,10 @@ export function ChatTab({
   messages,
   mine,
   typing,
-  seeded,
   onSend,
-  onOpenQuestion,
   onJoin,
   draft,
   onDraft,
-  jump,
   loading = false,
   watch = null,
   ideas = true,
@@ -64,16 +60,12 @@ export function ChatTab({
   messages: ChatMessage[]
   mine: ChatMessage[]
   typing: string | null
-  seeded: boolean
   onSend: (text: string, replyFrom?: string, isThanks?: boolean) => void
-  onOpenQuestion: () => void
   /** join this room, from the panel that stands in for the composer */
   onJoin: () => void
   /** a hello tapped before joining: it waits for the composer */
   draft: Draft | null
   onDraft: (draft: Draft) => void
-  /** scroll to the newest message right after opening (e.g. greeted from the people tab) */
-  jump: boolean
   /** live: the room's history hasn't arrived yet */
   loading?: boolean
   /** the clip the room is watching together: a "เปิดคลิป" line goes into the chat where it started */
@@ -95,7 +87,6 @@ export function ChatTab({
   const isMine = useIsMine()
   const people = usePeople()
   const byId = useMemo(() => new Map(people.map((u) => [u.id, u])), [people])
-  const question = useDailyQuestion(room.id)
   const endRef = useRef<HTMLDivElement>(null)
   const logRef = useRef<HTMLDivElement>(null)
   const joinRef = useRef<HTMLDivElement>(null)
@@ -116,10 +107,8 @@ export function ChatTab({
   }
   useEffect(() => {
     if (!draft || joined) return
-    // after the jump to the newest message when it came from the people tab
-    const timer = window.setTimeout(() => joinRef.current?.querySelector('button')?.focus({ preventScroll: true }), jump ? 360 : 0)
-    return () => clearTimeout(timer)
-  }, [draft, joined, jump])
+    joinRef.current?.querySelector('button')?.focus({ preventScroll: true })
+  }, [draft, joined])
 
   // ⋯ on someone else's message: one sheet for the whole chat
   const [acting, setActing] = useState<MessageTarget | null>(null)
@@ -145,7 +134,7 @@ export function ChatTab({
   }
 
   // follow the conversation when something new arrives (not on first paint or when the
-  // history lands, so the hero stays in view)
+  // history lands, so the initial scroll position stays put)
   useEffect(() => {
     if (!settled.current) {
       settled.current = !loading
@@ -159,19 +148,13 @@ export function ChatTab({
     if (grew && !sheetOpen.current) endRef.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'end' })
   }, [shown.length, typing, reduce, loading])
 
-  useEffect(() => {
-    if (!jump) return
-    const timer = window.setTimeout(() => endRef.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'end' }), 320)
-    return () => clearTimeout(timer)
-  }, [jump, reduce])
-
   const typer = typing ? byId.get(typing) : undefined
   const items = useMemo(() => chatItems(shown), [shown])
 
   return (
-    <section aria-label={t(`แชทห้อง${room.name}`, `${room.name} chat`)}>
+    <section className="flex min-w-0 flex-1 flex-col" aria-label={t(`แชทห้อง${room.name}`, `${room.name} chat`)}>
       {/* focusable from code only: it takes the focus when the ⋯ that had it is gone */}
-      <div ref={logRef} role="log" tabIndex={-1} aria-label={t('ข้อความในห้อง', 'Room messages')} className="outline-none">
+      <div ref={logRef} role="log" tabIndex={-1} aria-label={t('ข้อความในห้อง', 'Room messages')} className="flex-1 outline-none">
         <motion.ol variants={stagger(0.05)} initial="hidden" animate="show" className="flex flex-col">
           {loading && (
             <li role="status" className="flex flex-col gap-4">
@@ -187,12 +170,7 @@ export function ChatTab({
               ))}
             </li>
           )}
-          {!seeded && !loading && flags.dailyQuestion && question && (
-            <motion.li variants={fadeUp} className="mb-4">
-              <QuestionStarter text={question.text} onOpen={onOpenQuestion} />
-            </motion.li>
-          )}
-          {!loading && messages.length === 0 && !(flags.dailyQuestion && question) && (
+          {!loading && messages.length === 0 && (
             <motion.li variants={fadeUp} className="mb-4">
               <QuietStart joined={joined} />
             </motion.li>
@@ -451,26 +429,6 @@ function QuietStart({ joined }: { joined: boolean }) {
           ? t('ทักทายเป็นคนแรกเลยไหม ใครแวะมาก็จะเจอคำทักของเรารอต้อนรับอยู่', 'Be the first to say hi. Whoever pops in next will find your hello waiting')
           : t('เข้าห้องแล้วทักทายเป็นคนแรกเลยนะ ใครแวะมาก็จะเจอคำทักของเรา', 'Join and be the first to say hi. Whoever pops in next will see it')}
       </p>
-    </div>
-  )
-}
-
-/** Quiet room: open with today's question instead of an empty chat (only while flags.dailyQuestion is on). */
-function QuestionStarter({ text, onOpen }: { text: string; onOpen: () => void }) {
-  return (
-    <div className="card relative overflow-hidden p-5">
-      <span aria-hidden className="absolute -top-10 -right-8 size-32 rounded-full bg-lavender/30 blur-2xl" />
-      <p className="relative inline-flex items-center gap-1.5 rounded-full bg-lavender/30 px-3 py-1 text-xs font-semibold text-ink">
-        <MessageCircleQuestion size={14} strokeWidth={2.4} aria-hidden />
-        {t('คำถามวันนี้', "Today's question")}
-      </p>
-      <p className="relative mt-3 font-display text-xl leading-snug font-semibold text-ink">{text}</p>
-      <p className="relative mt-1 text-sm text-ink-soft">
-        {t('ห้องยังเงียบๆ อยู่เลย เริ่มจากตอบคำถามนี้ หรือทักทายเพื่อนๆ ก่อนก็ได้นะ', "It's quiet in here. Start with this question, or just say hi to everyone")}
-      </p>
-      <Button variant="soft" className="relative mt-4" onClick={onOpen}>
-        {t('ไปตอบคำถามกัน', "Let's answer it")}
-      </Button>
     </div>
   )
 }

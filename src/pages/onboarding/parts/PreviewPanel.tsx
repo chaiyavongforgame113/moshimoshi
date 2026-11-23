@@ -1,15 +1,15 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { Clock3, DoorOpen, MessageCircleHeart, Search, Signpost, Sparkle, Star, Tags } from 'lucide-react'
+import { Clock3, MessageCircleHeart, Search, Signpost, Sparkle, Star, Tags } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { MochiExpression } from '@/components/three'
-import { AllDayChip, RoomIcon } from '@/components/ui'
-import { useRooms, useServerFeatures } from '@/data/hooks'
-import { chatStyleLabel, isAllDay, ONLINE_LABEL, promptLabel, tagOf } from '@/data/tags'
+import { AllDayChip } from '@/components/ui'
+import { useServerFeatures } from '@/data/hooks'
+import { chatStyleLabel, isAllDay, ONLINE_LABEL, tagOf } from '@/data/tags'
 import { CATEGORY_COLOR, MOCHI } from '@/lib/colors'
 import { known, t } from '@/lib/i18n'
 import { lifeStageEmoji, lifeStageLabel } from '@/lib/lifeStages'
 import { spring } from '@/lib/motion'
-import { textLength, type Draft } from '../model'
+import { intentChoices, type Draft } from '../model'
 import { TEMPLATE_BY_ID } from '../options'
 import { SignalBars } from './Signal'
 import { StageBox } from './StageBox'
@@ -58,11 +58,10 @@ function ProfilePreview({ draft, province }: { draft: Draft; province: string })
   const ordered = [...draft.loves, ...draft.tags.filter((t) => !draft.loves.includes(t))]
   const shown = ordered.slice(0, 7)
   const more = ordered.length - shown.length
-  const story = draft.prompts.find((p) => textLength(p.text) > 0)
-  const tpl = draft.intent ? TEMPLATE_BY_ID[draft.intent] : null
+  const bio = draft.bio.trim()
+  const templates = intentChoices(draft).map((intent) => TEMPLATE_BY_ID[intent])
   const allDay = isAllDay(draft.online)
   const rhythm = [...(allDay ? [] : draft.online.map((s) => ONLINE_LABEL[s])), ...draft.chatStyle.map(chatStyleLabel)]
-  const rooms = useRooms()
   const lifeOn = useServerFeatures().lifeStages
 
   return (
@@ -136,25 +135,22 @@ function ProfilePreview({ draft, province }: { draft: Draft; province: string })
         )}
 
         <Row icon={<MessageCircleHeart size={14} />} label={t('เล่าให้ฟัง', 'About me')}>
-          {story ? (
-            <p className="line-clamp-2 text-sm [overflow-wrap:anywhere] text-ink">
-              <span className="font-semibold">{promptLabel(story)} </span>
-              {story.text}
-            </p>
+          {bio ? (
+            <p className="line-clamp-2 text-sm [overflow-wrap:anywhere] text-ink">{bio}</p>
           ) : (
             <Ghosts widths={['w-40', 'w-24']} />
           )}
         </Row>
 
-        <Row icon={tpl ? <Search size={14} /> : <Clock3 size={14} />} label={t('จังหวะ', 'Rhythm')}>
-          {tpl || allDay || rhythm.length ? (
+        <Row icon={templates.length ? <Search size={14} /> : <Clock3 size={14} />} label={t('จังหวะ', 'Rhythm')}>
+          {templates.length || allDay || rhythm.length ? (
             <div className="flex flex-wrap gap-1.5">
-              {tpl && (
-                <span className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-semibold" style={{ background: MOCHI[tpl.color].base, color: MOCHI[tpl.color].ink }}>
+              {templates.map((tpl) => (
+                <span key={tpl.id} className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-semibold" style={{ background: MOCHI[tpl.color].base, color: MOCHI[tpl.color].ink }}>
                   <tpl.Icon size={12} aria-hidden />
                   {tpl.label}
                 </span>
-              )}
+              ))}
               {allDay && <AllDayChip size="xs" />}
               {rhythm.map((r) => (
                 <span key={r} className="inline-flex h-7 max-w-full items-center rounded-full bg-white px-2.5 text-xs font-medium text-ink">
@@ -167,34 +163,6 @@ function ProfilePreview({ draft, province }: { draft: Draft; province: string })
           )}
         </Row>
 
-        <Row icon={<DoorOpen size={14} />} label={t('ห้อง', 'Rooms')}>
-          {draft.rooms.length ? (
-            <div className="flex flex-wrap gap-1.5">
-              <AnimatePresence initial={false}>
-                {draft.rooms.map((id) => {
-                  const room = rooms.find((r) => r.id === id)
-                  if (!room) return null
-                  return (
-                    <motion.span
-                      key={id}
-                      layout
-                      initial={{ opacity: 0, scale: 0.5 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.5 }}
-                      transition={spring.bouncy}
-                      title={room.name}
-                    >
-                      <RoomIcon room={room} size={30} />
-                      <span className="sr-only">{room.name}</span>
-                    </motion.span>
-                  )
-                })}
-              </AnimatePresence>
-            </div>
-          ) : (
-            <Ghosts widths={['w-8', 'w-8', 'w-8']} round />
-          )}
-        </Row>
       </dl>
     </div>
   )
@@ -213,12 +181,12 @@ function Row({ icon, label, children }: { icon: ReactNode; label: string; childr
 }
 
 /** Dashed placeholders that hint at what's still to come. */
-function Ghosts({ widths, round }: { widths: string[]; round?: boolean }) {
+function Ghosts({ widths }: { widths: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       <span className="sr-only">{t('ยังไม่ได้เลือก', 'Nothing picked yet')}</span>
       {widths.map((w, i) => (
-        <span key={i} aria-hidden className={`h-7 border-2 border-dashed border-ink/15 ${round ? 'w-8 rounded-xl' : `${w} rounded-full`}`} />
+        <span key={i} aria-hidden className={`h-7 rounded-full border-2 border-dashed border-ink/15 ${w}`} />
       ))}
     </div>
   )

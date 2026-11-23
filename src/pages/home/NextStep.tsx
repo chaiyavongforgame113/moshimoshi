@@ -10,11 +10,11 @@ import { known, t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import type { Chat, IntroRequest, MatchResult, MochiColor, Session } from '@/lib/types'
-import { IntroAnswer } from '@/pages/chats/intro/IncomingIntro'
+import { IntroAnswer } from '@/pages/people/IncomingIntro'
 import { chatPhase, chatToOpen, previewText, setAside } from '@/pages/chats/lib'
 import { OpenDot } from '@/pages/events/EventCard'
 import { bySoonest, eventPath, useEventHref, useEventsNow } from '@/pages/events/lib'
-import { RsvpButton, useRsvp } from '@/pages/events/Rsvp'
+import { RsvpButton } from '@/pages/events/Rsvp'
 import { introOffered, useMochiReasons } from '@/pages/people/intro'
 import { IntroButton } from '@/pages/people/IntroButton'
 import { MochiReasonList } from '@/pages/people/IntroReasons'
@@ -36,7 +36,7 @@ export type Next =
  * someone (an intro waiting for my answer) / unread messages →
  * an event I'm going to (or one in my rooms) is live → today's wavelength pick (until we're
  * chatting: the pick stays the same all day, and saying hi again isn't a next step) → the next
- * event → invite a friend. HomePage reads it too, so the zones below don't repeat what it shows.
+ * event I haven't RSVP'd to → invite a friend.
  */
 export function useNextStep(): Next {
   const chats = useChats()
@@ -63,7 +63,7 @@ export function useNextStep(): Next {
 
     if (pick && !chatToOpen(chats, pick.userId)) return { kind: 'pick', match: pick }
 
-    const soonest = sessions.filter((s) => eventPhase(s, now) === 'upcoming').sort(bySoonest(now))[0]
+    const soonest = sessions.filter((s) => !going.includes(s.id) && eventPhase(s, now) === 'upcoming').sort(bySoonest(now))[0]
     if (soonest) return { kind: 'upcoming', session: soonest }
     return { kind: 'invite' }
   }, [chats, isMine, sessions, going, myRooms, pick, now, introIn])
@@ -208,8 +208,7 @@ function EventCard({ session: s, why }: { session: Session; why?: 'going' | 'roo
   const now = useEventsNow([s])
   const open = eventPhase(s, now) === 'open'
   const href = useEventHref()(s, now)
-  const rsvp = useRsvp()
-  const going = rsvp.isGoing(s.id)
+  const going = useMoshi((state) => state.going.includes(s.id))
   const count = s.going + (going ? 1 : 0)
   const eyebrow = open
     ? why === 'going'
@@ -249,11 +248,19 @@ function EventCard({ session: s, why }: { session: Session; why?: 'going' | 'roo
           </ButtonLink>
         ) : (
           <>
-            <RsvpButton session={s} going={going} onToggle={() => rsvp.toggle(s)} size="lg" className="w-full sm:w-auto" />
+            <RsvpButton
+              session={s}
+              going={false}
+              onToggle={() => {
+                const state = useMoshi.getState()
+                if (!state.going.includes(s.id)) state.toggleGoing(s.id)
+              }}
+              size="lg"
+              className="w-full sm:w-auto"
+            />
             <ButtonLink to={eventPath(s.id)} variant="ghost" className="w-full sm:w-auto">
               {t('ดูอีเวนต์', 'See the event')}
             </ButtonLink>
-            {rsvp.sheet}
           </>
         )
       }

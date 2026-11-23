@@ -69,10 +69,10 @@ export function Events({ skip }: { skip?: string }) {
           </ButtonLink>
         </EmptyNote>
       ) : (
-        <ul className="grid gap-3 pt-1 sm:grid-cols-2">
-          {shown.map((s, i) => (
+        <ul className="space-y-2.5">
+          {shown.map((s) => (
             <li key={s.id} className="min-w-0">
-              <EventCard session={s} index={i} />
+              <EventCard session={s} variant="compact" />
             </li>
           ))}
         </ul>
@@ -84,12 +84,14 @@ export function Events({ skip }: { skip?: string }) {
 /** Two soft card outlines while events load. */
 function EventsSkeleton() {
   return (
-    <div role="status" aria-label={t('กำลังโหลด', 'Loading')} className="grid gap-3 pt-1 sm:grid-cols-2">
+    <div role="status" aria-label={t('กำลังโหลด', 'Loading')} className="space-y-2.5">
       {[0, 1].map((i) => (
-        <div key={i} aria-hidden className="card h-52 min-w-0 p-4">
-          <span className="block h-3 w-16 rounded-full bg-cream-3 motion-safe:animate-pulse" />
-          <span className="mt-2 block h-7 w-24 rounded-full bg-cream-3 motion-safe:animate-pulse" />
-          <span className="mt-4 block h-4 w-3/4 rounded-full bg-cream-3/70 motion-safe:animate-pulse" />
+        <div key={i} aria-hidden className="card flex min-h-24 items-center gap-3 p-3">
+          <span className="size-11 shrink-0 rounded-2xl bg-cream-3 motion-safe:animate-pulse" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <span className="block h-3 w-16 rounded-full bg-cream-3 motion-safe:animate-pulse" />
+            <span className="block h-4 w-3/4 rounded-full bg-cream-3 motion-safe:animate-pulse" />
+          </div>
         </div>
       ))}
     </div>

@@ -1,5 +1,5 @@
 import { motion, useReducedMotion } from 'motion/react'
-import { House, Plus, Sparkle } from 'lucide-react'
+import { ChevronLeft, Plus, Sparkle } from 'lucide-react'
 import { useMemo } from 'react'
 import { MochiStage, View3D } from '@/components/three'
 import { Button, ButtonLink } from '@/components/ui'
@@ -17,7 +17,7 @@ const SPARKS = [
   { left: '92%', top: '62%', size: 24, color: MOCHI.lavender.shade, delay: 0.45 },
 ]
 
-/** After posting: Mochi cheers, then up to 3 people on this post's wavelength to invite, and the way home. */
+/** After posting: Mochi cheers, then up to 3 people on this post's wavelength to invite, and a link back to the invite board. */
 export function PostSuccess({ intent, onAgain }: { intent: Intent; onAgain: () => void }) {
   const reduce = useReducedMotion()
   const mine = useMemo(() => [intent], [intent])
@@ -59,8 +59,8 @@ export function PostSuccess({ intent, onAgain }: { intent: Intent; onAgain: () =
       </motion.div>
 
       <motion.div variants={fadeUp} className="mt-6 flex w-full flex-col items-center gap-2">
-        <ButtonLink to="/app" size="lg" variant={matches.length ? 'secondary' : 'primary'} icon={<House size={20} aria-hidden />} className="w-full sm:w-auto sm:min-w-56">
-          {t('กลับหน้าหลัก', 'Back home')}
+        <ButtonLink to="/app/people?tab=invites" size="lg" variant={matches.length ? 'secondary' : 'primary'} icon={<ChevronLeft size={20} aria-hidden />} className="w-full sm:w-auto sm:min-w-56">
+          {t('กลับไปดูคำชวน', 'Back to invites')}
         </ButtonLink>
         <Button variant="ghost" icon={<Plus size={18} aria-hidden />} onClick={onAgain}>
           {t('ชวนเล่นอีกเรื่อง', 'Start another invite')}

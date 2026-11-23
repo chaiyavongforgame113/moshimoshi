@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { CalendarHeart, DoorOpen, LayoutGrid, Search, X } from 'lucide-react'
+import { CalendarCheck2, CalendarHeart, DoorOpen, LayoutGrid, Search, X } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { KineticText } from '@/components/motion'
@@ -18,19 +18,21 @@ import { useRoomToggle } from './LeaveRoom'
 import { RoomCard } from './list/RoomCard'
 import { liveFirst, roomMatches } from './roomData'
 
-type Filter = 'all' | 'mine' | 'events'
+type RoomFilter = 'all' | 'mine'
+type Filter = RoomFilter | 'my-events' | 'events'
 
-/** ?tab=mine / ?tab=events open that tab (home's "ดูทั้งหมด" links here); anything else is all rooms. */
-const filterOf = (value: string | null): Filter => (value === 'mine' || value === 'events' ? value : 'all')
+const filterOf = (value: string | null): Filter => (value === 'mine' || value === 'my-events' || value === 'events' ? value : 'all')
+const isEventFilter = (filter: Filter) => filter === 'events' || filter === 'my-events'
 
 const FILTERS: TabItem<Filter>[] = [
-  loc<TabItem<Filter>>({ key: 'all', label: L('ทั้งหมด', 'All rooms'), icon: <LayoutGrid size={16} strokeWidth={2.4} /> }),
   loc<TabItem<Filter>>({ key: 'mine', label: L('ห้องของเรา', 'My rooms'), icon: <DoorOpen size={16} strokeWidth={2.4} /> }),
-  loc<TabItem<Filter>>({ key: 'events', label: L('อีเวนต์', 'Events'), icon: <CalendarHeart size={16} strokeWidth={2.4} /> }),
+  loc<TabItem<Filter>>({ key: 'all', label: L('ทั้งหมด', 'All rooms'), icon: <LayoutGrid size={16} strokeWidth={2.4} /> }),
+  loc<TabItem<Filter>>({ key: 'my-events', label: L('อีเวนต์ของเรา', 'My events'), icon: <CalendarCheck2 size={16} strokeWidth={2.4} /> }),
+  loc<TabItem<Filter>>({ key: 'events', label: L('อีเวนต์ทั้งหมด', 'All events'), icon: <CalendarHeart size={16} strokeWidth={2.4} /> }),
 ]
 
 /** each room tab's rooms sit in a zone of their own colour (events have zones of their own) */
-const LIST_TONE: Record<Exclude<Filter, 'events'>, MochiColor> = { all: 'butter', mine: 'sky' }
+const LIST_TONE: Record<RoomFilter, MochiColor> = { all: 'butter', mine: 'sky' }
 
 /** rooms a list shows before "ดูเพิ่ม" */
 const FIRST_ROOMS = 6
@@ -77,6 +79,8 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
   const openEvents = useMemo(() => openByRoom(events, now), [events, now])
   const [params, setParams] = useSearchParams()
   const filter = filterOf(params.get('tab'))
+  const onEvents = isEventFilter(filter)
+  const myEvents = filter === 'my-events'
   const setFilter = (next: Filter) =>
     setParams(
       (p) => {
@@ -98,13 +102,11 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
   }, [filter, ordered, me.rooms, q])
   const openCount = useMemo(() => events.filter((e) => eventPhase(e, now) === 'open').length, [events, now])
   const going = useMoshi((s) => s.going)
-  // what the อีเวนต์ tab lists for this search (open + coming up), for the screen-reader count
-  const eventHits = useMemo(() => {
-    if (filter !== 'events' || !q) return 0
-    const g = groupEvents(eventsMatching(events, allRooms, q), now, going)
-    return g.open.length + g.upcoming.length
-  }, [filter, q, events, allRooms, now, going])
-  const onEvents = filter === 'events'
+  const eventGroups = useMemo(() => {
+    const scoped = myEvents ? events.filter((event) => going.includes(event.id)) : events
+    return groupEvents(eventsMatching(scoped, allRooms, q), now, going)
+  }, [myEvents, q, events, allRooms, now, going])
+  const eventHits = eventGroups.open.length + eventGroups.upcoming.length + eventGroups.endedToday.length
   // the อีเวนต์ tab counts what's open right now
   const tabs = FILTERS.map((f) => (f.key === 'events' ? { key: f.key, label: f.label, icon: f.icon, badge: openCount } : f))
   // live counts only change the badges: joining or leaving never moves the card you just tapped
@@ -114,6 +116,10 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
     <>
       {sheet}
       <motion.div variants={stagger(0.06)} initial="hidden" animate="show" className="space-y-3">
+        <motion.div variants={fadeUp}>
+          <Tabs items={tabs} value={filter} onChange={setFilter} idBase="rooms" className="w-full sm:w-fit" />
+        </motion.div>
+
         <motion.form variants={fadeUp} role="search" onSubmit={(e) => e.preventDefault()} className="relative">
           <label htmlFor="room-search" className="sr-only">
             {onEvents ? t('ค้นหาอีเวนต์หรือห้อง', 'Search events or rooms') : t('ค้นหาห้อง', 'Search rooms')}
@@ -149,10 +155,6 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
             )}
           </AnimatePresence>
         </motion.form>
-
-        <motion.div variants={fadeUp}>
-          <Tabs items={tabs} value={filter} onChange={setFilter} idBase="rooms" className="w-fit max-w-full" />
-        </motion.div>
       </motion.div>
 
       <p className="sr-only" aria-live="polite">
@@ -164,18 +166,20 @@ function RoomsBrowser({ allRooms }: { allRooms: Room[] }) {
       </p>
 
       <div className="mt-5" role="tabpanel" id={tabPanelId('rooms', filter)} aria-labelledby={tabId('rooms', filter)}>
-        {filter === 'events' ? (
-          <motion.div key="events" variants={fadeUp} initial="hidden" animate="show">
+        {onEvents ? (
+          <motion.div key={filter} variants={fadeUp} initial="hidden" animate="show">
             <EventsBoard
+              groups={eventGroups}
+              mine={myEvents}
               query={q}
               empty={
                 <EmptyState
-                  filter="events"
+                  filter={filter}
                   query={q}
                   onClear={() => setQuery('')}
                   onBrowse={() => {
                     setQuery('')
-                    setFilter('all')
+                    setFilter(myEvents ? 'events' : 'all')
                   }}
                 />
               }
@@ -245,11 +249,13 @@ function useSteadyOrder(list: Room[], key: string): Room[] {
 function EmptyState({ filter, query, onClear, onBrowse }: { filter: Filter; query: string; onClear: () => void; onBrowse: () => void }) {
   const searching = !!query
   const title = searching
-    ? filter === 'events'
+    ? isEventFilter(filter)
       ? t(`ยังไม่เจออีเวนต์ที่ตรงกับ “${query}”`, `No events match “${query}” yet`)
       : t(`ยังไม่เจอห้องที่ตรงกับ “${query}”`, `No rooms match “${query}” yet`)
     : filter === 'mine'
       ? t('ยังไม่ได้เข้าห้องไหนเลย', "You haven't joined any rooms yet")
+      : filter === 'my-events'
+        ? t('ยังไม่มีอีเวนต์ในแผน', 'No upcoming events on your list')
       : filter === 'events'
         ? t('ยังไม่มีอีเวนต์ที่เปิดหรือกำลังจะเปิด', 'No events open or coming up')
         : t('ตอนนี้ยังเงียบๆ อยู่', "It's quiet right now")
@@ -259,6 +265,8 @@ function EmptyState({ filter, query, onClear, onBrowse }: { filter: Filter; quer
       : t('ลองคำอื่นดูไหม หรือล้างคำค้นหา', 'Try another word, or clear the search')
     : filter === 'mine'
       ? t('เข้าห้องที่ชอบไว้ แล้วห้องจะมารออยู่ตรงนี้ กลับมาคุยต่อได้ทุกเมื่อ', "Join rooms you like and they'll wait for you here, ready whenever you are")
+      : filter === 'my-events'
+        ? t('กดไปด้วยในอีเวนต์ที่สนใจ แล้วจะเจออีเวนต์นั้นที่นี่', 'RSVP to an event to find it here.')
       : filter === 'events'
         ? t('เดี๋ยวจะมีอีเวนต์ใหม่ๆ มาอีกนะ ระหว่างนี้แวะไปทักเพื่อนในห้องก่อนก็ได้', 'New events are on the way. Meanwhile, pop into a room and say hi')
         : t('ยังไม่มีห้องให้ดูตอนนี้ แวะกลับมาใหม่นะ', 'No rooms to show yet. Check back soon')
@@ -282,7 +290,7 @@ function EmptyState({ filter, query, onClear, onBrowse }: { filter: Filter; quer
       ) : (
         filter !== 'all' && (
           <Button className="mt-5" icon={<LayoutGrid size={18} strokeWidth={2.4} />} onClick={onBrowse}>
-            {t('ดูห้องทั้งหมด', 'See all rooms')}
+            {filter === 'my-events' ? t('ดูอีเวนต์ทั้งหมด', 'See all events') : t('ดูห้องทั้งหมด', 'See all rooms')}
           </Button>
         )
       )}

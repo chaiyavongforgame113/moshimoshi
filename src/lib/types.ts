@@ -98,7 +98,7 @@ export interface User {
   rooms: string[]
   languages: string[]
   /**
-   * "ช่วงชีวิต": up to 3 (LIFE_STAGE_MAX in lib/lifeStages). Stored in Thai: the list's values, or
+   * "ช่วงชีวิต": up to LIFE_STAGE_MAX in lib/lifeStages. Stored in Thai: the list's values, or
    * what they typed themselves ("อื่นๆ"); show them with lifeStageLabel(). Absent before
    * profiles.life_stages exists (20261117000001_lifestage_intro_watch.sql).
    */
@@ -249,6 +249,8 @@ export interface Chat {
   unread: number
   /** live mode: server status (demo chats have none) */
   status?: ChatStatus
+  /** Explicitly closed for both members, distinct from a declined hello. */
+  closedAt?: string
   /** live mode: who sent the moshi that opened this chat */
   requestedBy?: string
   /** บันไดความไว้ใจ ขั้น 2: who said yes to photos (both = unlocked) */

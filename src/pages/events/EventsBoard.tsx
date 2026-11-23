@@ -1,16 +1,14 @@
 // The rooms page's "อีเวนต์" tab: open now, coming up, and (folded away) what ended today.
 import { AnimatePresence, motion } from 'motion/react'
 import { CalendarCheck2, CalendarClock, ChevronDown, Radio } from 'lucide-react'
-import { useId, useMemo, useState, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { ShowMore, Zone } from '@/components/ui'
-import { useEvents, useRooms } from '@/data/hooks'
 import { t } from '@/lib/i18n'
 import { spring } from '@/lib/motion'
-import { useMoshi } from '@/lib/store'
 import type { MochiColor, Room, Session } from '@/lib/types'
 import { roomMatches } from '@/pages/rooms/roomData'
 import { EventCard } from './EventCard'
-import { groupEvents, useEventsNow } from './lib'
+import type { EventGroups } from './lib'
 
 /** events a section shows before "ดูเพิ่ม" */
 const FIRST = 4
@@ -27,18 +25,11 @@ export function eventsMatching(events: readonly Session[], rooms: readonly Room[
 }
 
 /**
- * Every event, split by phase. `query` narrows it (eventsMatching); `empty` shows when nothing is
- * open or coming up.
+ * Event results split by phase. `empty` shows when nothing is open or coming up.
  */
-export function EventsBoard({ query, empty }: { query: string; empty: ReactNode }) {
-  const events = useEvents()
-  const rooms = useRooms()
-  const going = useMoshi((s) => s.going)
-  const now = useEventsNow(events)
+export function EventsBoard({ groups, query, mine, empty }: { groups: EventGroups; query: string; mine: boolean; empty: ReactNode }) {
   const [showEnded, setShowEnded] = useState(false)
   const endedId = useId()
-
-  const groups = useMemo(() => groupEvents(eventsMatching(events, rooms, query), now, going), [events, rooms, query, now, going])
 
   const { open, upcoming, endedToday } = groups
   const nothing = !open.length && !upcoming.length
@@ -61,7 +52,7 @@ export function EventsBoard({ query, empty }: { query: string; empty: ReactNode 
           tone="lavender"
           icon={<CalendarClock size={18} strokeWidth={2.4} />}
           title={t('กำลังจะเปิด', 'Coming up')}
-          note={t('กดไปด้วยไว้ ถึงเวลาแล้วห้องจะเปิดเอง', "Say you're going. The room opens by itself on time")}
+          note={mine ? undefined : t('กดไปด้วยไว้ ถึงเวลาแล้วห้องจะเปิดเอง', "Say you're going. The room opens by itself on time")}
           list={upcoming}
           listKey={`soon:${query}`}
         />
@@ -105,7 +96,7 @@ export function EventsBoard({ query, empty }: { query: string; empty: ReactNode 
   )
 }
 
-function Section({ tone, icon, title, note, list, listKey }: { tone: MochiColor; icon: ReactNode; title: string; note: string; list: Session[]; listKey: string }) {
+function Section({ tone, icon, title, note, list, listKey }: { tone: MochiColor; icon: ReactNode; title: string; note?: string; list: Session[]; listKey: string }) {
   return (
     <Zone tone={tone} icon={icon} title={title} note={note}>
       {/* a new search starts short again */}

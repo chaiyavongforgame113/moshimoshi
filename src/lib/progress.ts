@@ -5,7 +5,7 @@ import type { ChatMessage } from './types'
 
 /*
  * Small "how far along am I" notes kept on this device:
- *  - per person (keyed by user id): sent a first room message, the home's "เริ่มต้น 3 ขั้น"
+ *  - per person (keyed by user id): sent a first room message, the home's first steps
  *    card closed (finished or hidden)
  *  - per device: which first-visit tips (one Mochi bubble per main tab) were already shown
  * Storage can be missing or full (private windows, blocked site data), so every read and write
@@ -13,12 +13,14 @@ import type { ChatMessage } from './types'
  */
 
 export interface Progress {
+  /** Favorite chats for this account on this device. */
+  starredChats?: string[]
   /** I typed something in a room at least once */
   roomMessage?: boolean
-  /** the "เริ่มต้น 3 ขั้น" card was shown with something still to do */
-  stepsSeen?: boolean
-  /** the "เริ่มต้น 3 ขั้น" card is closed for good (all three done, or hidden) */
+  /** The first steps card is closed for good (completed or previously hidden). */
   stepsClosed?: boolean
+  /** The follow-up after completing first steps has been dismissed or acted on. */
+  stepsFollowUpSeen?: boolean
 }
 
 const EMPTY: Progress = {}
@@ -70,8 +72,14 @@ function writeProgress(userId: string, patch: Progress) {
 }
 
 export const markRoomMessageSent = (userId: string) => writeProgress(userId, { roomMessage: true })
-export const markFirstStepsSeen = (userId: string) => writeProgress(userId, { stepsSeen: true })
 export const closeFirstSteps = (userId: string) => writeProgress(userId, { stepsClosed: true })
+export const dismissFirstStepsFollowUp = (userId: string) => writeProgress(userId, { stepsFollowUpSeen: true })
+
+export function toggleChatStar(userId: string, chatId: string) {
+  const stored = readProgress(userId).starredChats
+  const starred = Array.isArray(stored) ? stored : []
+  writeProgress(userId, { starredChats: starred.includes(chatId) ? starred.filter((id) => id !== chatId) : [...starred, chatId] })
+}
 
 export function useProgress(userId: string): Progress {
   return useSyncExternalStore(

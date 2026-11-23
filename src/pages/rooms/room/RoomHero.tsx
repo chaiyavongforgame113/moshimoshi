@@ -1,6 +1,5 @@
 import { motion, useReducedMotion } from 'motion/react'
 import { Clock3, Users } from 'lucide-react'
-import { forwardRef } from 'react'
 import { KineticText } from '@/components/motion'
 import { Avatar, RoomIcon } from '@/components/ui'
 import { MochiStage, View3D } from '@/components/three'
@@ -16,17 +15,13 @@ import { AvatarStack, JoinButton, PresenceLine } from '../bits'
 const PORTHOLE = 'radial-gradient(circle var(--r) at calc(100% - var(--c)) var(--c), transparent calc(var(--r) - 1px), #000 var(--r))'
 
 /** `still`: a clip is on in the room, so no 3D scene beside the video (battery): a drawn mochi instead. */
-export const RoomHero = forwardRef<HTMLElement, { room: Room; joined: boolean; onToggleJoin: () => void; still?: boolean }>(function RoomHero(
-  { room, joined, onToggleJoin, still = false },
-  ref,
-) {
+export function RoomHero({ room, joined, onToggleJoin, still = false }: { room: Room; joined: boolean; onToggleJoin: () => void; still?: boolean }) {
   const reduce = useReducedMotion()
   const p = MOCHI[room.color]
   const people = usePeople()
   const hosts = room.hostIds.map((id) => people.find((u) => u.id === id)).filter((u) => !!u)
   return (
     <section
-      ref={ref}
       aria-labelledby="room-title"
       className="relative isolate overflow-hidden rounded-[2rem] shadow-[var(--shadow-lift)] [--c:72px] [--r:57px] sm:[--c:94px] sm:[--r:74px]"
     >
@@ -85,9 +80,9 @@ export const RoomHero = forwardRef<HTMLElement, { room: Room; joined: boolean; o
           >
             <RoomIcon room={room} size={72} />
           </motion.span>
-          <h1 id="room-title" className="mt-3 font-display text-[1.75rem] leading-tight font-bold sm:text-4xl" style={{ color: p.ink }}>
+          <h2 id="room-title" className="mt-3 font-display text-[1.75rem] leading-tight font-bold sm:text-4xl" style={{ color: p.ink }}>
             <KineticText text={room.name} delay={0.2} />
-          </h1>
+          </h2>
           <p className="mt-1 font-semibold" style={{ color: p.ink }}>
             {room.tagline}
           </p>
@@ -135,4 +130,4 @@ export const RoomHero = forwardRef<HTMLElement, { room: Room; joined: boolean; o
       </div>
     </section>
   )
-})
+}

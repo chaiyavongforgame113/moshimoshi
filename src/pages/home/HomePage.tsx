@@ -5,25 +5,21 @@ import { Link } from 'react-router'
 import { InstallSheet } from '@/app/InstallSheet'
 import { KineticText } from '@/components/motion'
 import { Avatar, IconButton, PageHeader } from '@/components/ui'
-import { useDailyPick, useDataReady } from '@/data/hooks'
+import { useDataReady } from '@/data/hooks'
 import { useInstallPrompt } from '@/lib/hooks'
 import { t } from '@/lib/i18n'
-import { closeFirstSteps, markFirstStepsSeen } from '@/lib/progress'
+import { closeFirstSteps } from '@/lib/progress'
 import { useMoshi } from '@/lib/store'
 import { Block } from './Block'
-import { Events } from './Events'
-import { FirstSteps, useFirstSteps, type FirstStepsState } from './FirstSteps'
+import { EventNotifications } from './EventNotifications'
+import { FIRST_STEPS_TOTAL, FirstSteps, useFirstSteps, type FirstStepsState } from './FirstSteps'
+import { FirstStepsFollowUp } from './FirstStepsFollowUp'
 import { greeting } from './greeting'
 import { MochiCard } from './MochiCard'
 import { NextStep, useNextStep, type Next } from './NextStep'
 import { SoftSkeleton } from './Soft'
-import { TopMatches } from './TopMatches'
 
-/**
- * /app — "คืนนี้": four calm zones, top to bottom: Little Mochi asks how today went, what to do
- * next (three first steps, then the one thing that matters now), people on your wavelength,
- * and events. Whoever or whatever zone 2 puts forward is left out of the lists below it.
- */
+/** My Moshi: a mood check-in and one next step. */
 export default function HomePage() {
   const onboarded = useMoshi((s) => s.onboarded)
   const name = useMoshi((s) => s.me.name)
@@ -38,13 +34,7 @@ export default function HomePage() {
   const ready = useDataReady()
   const steps = useFirstSteps()
   const next = useNextStep()
-  const pick = useDailyPick()
-  const showSteps = ready && !steps.stepsClosed && steps.done < 3
-  // what zone 2 shows right now: the first steps name today's pick until we've said hi; the
-  // "ตอนนี้" card shows one person or one event
-  const featuredPerson = showSteps ? (!steps.chatted ? pick?.userId : undefined) : next.kind === 'pick' ? next.match.userId : undefined
-  const featuredEvent = !showSteps && (next.kind === 'live' || next.kind === 'upcoming') ? next.session.id : undefined
-  const inviteAbove = !showSteps && next.kind === 'invite'
+  const showSteps = ready && !steps.stepsClosed && steps.done < FIRST_STEPS_TOTAL
 
   return (
     <>
@@ -65,9 +55,10 @@ export default function HomePage() {
         }
         subtitle={g.sub}
         action={
-          <div className="flex shrink-0 items-center gap-2 lg:hidden">
+          <div className="flex shrink-0 items-center gap-2">
+            <EventNotifications />
             {!install.installed && (
-              <IconButton label={t('ติดตั้งแอปไว้บนหน้าจอโฮม', 'Add the app to your home screen')} onClick={() => setInstallOpen(true)}>
+              <IconButton className="lg:hidden" label={t('ติดตั้งแอปไว้บนหน้าจอโฮม', 'Add the app to your home screen')} onClick={() => setInstallOpen(true)}>
                 <Download size={19} />
               </IconButton>
             )}
@@ -75,7 +66,7 @@ export default function HomePage() {
             <Link
               to="/app/me"
               aria-label={t('โปรไฟล์ของเรา', 'My profile')}
-              className="inline-flex size-11 items-center justify-center rounded-full bg-white shadow-[var(--shadow-soft)] transition-transform active:scale-90"
+              className="inline-flex size-11 items-center justify-center rounded-full bg-white shadow-[var(--shadow-soft)] transition-transform active:scale-90 lg:hidden"
             >
               <Avatar color={color} size={34} face="happy" />
             </Link>
@@ -86,31 +77,24 @@ export default function HomePage() {
       <div className="flex flex-col gap-5 md:gap-6">
         <MochiCard />
         <WhatsNext ready={ready} steps={steps} next={next} showSteps={showSteps} />
-        <TopMatches skip={featuredPerson} inviteAbove={inviteAbove} />
-        <Events skip={featuredEvent} />
       </div>
 
       <InstallSheet open={installOpen} onClose={() => setInstallOpen(false)} />
+      {ready && onboarded && steps.myId && steps.done === FIRST_STEPS_TOTAL && (
+        <FirstStepsFollowUp userId={steps.myId} open={!steps.followUpSeen && !installOpen} />
+      )}
     </>
   )
 }
 
 /** Home zone 2, "ทำอะไรต่อดี": the first steps until they're done (or hidden), then NextStep. */
 function WhatsNext({ ready, steps, next, showSteps }: { ready: boolean; steps: FirstStepsState; next: Next; showSteps: boolean }) {
-  const notify = useMoshi((s) => s.notify)
-  const allDone = steps.done === 3
-  const { myId, stepsSeen, stepsClosed } = steps
+  const allDone = steps.done === FIRST_STEPS_TOTAL
+  const { myId, stepsClosed } = steps
 
   useEffect(() => {
-    if (!ready || !myId || stepsClosed) return
-    if (!allDone) {
-      markFirstStepsSeen(myId)
-      return
-    }
-    // all three ticked: the card steps aside for good (a cheer only if it was ever shown)
-    closeFirstSteps(myId)
-    if (stepsSeen) notify(t('ครบ 3 ขั้นแล้ว เก่งมากเลย!', 'All three first steps done. Nicely done!'))
-  }, [ready, myId, allDone, stepsSeen, stepsClosed, notify])
+    if (ready && myId && allDone && !stepsClosed) closeFirstSteps(myId)
+  }, [ready, myId, allDone, stepsClosed])
 
   return (
     <Block
@@ -120,7 +104,7 @@ function WhatsNext({ ready, steps, next, showSteps }: { ready: boolean; steps: F
       note={showSteps ? t('ทำทีละขั้น เดี๋ยวโมชิติ๊กให้เอง', 'One at a time. Mochi ticks them off for you') : t('เรื่องที่น่าทำที่สุดตอนนี้', 'The best thing to do right now')}
       icon={<Sparkles size={18} strokeWidth={2.4} />}
     >
-      {!ready ? <SoftSkeleton rows={1} /> : showSteps ? <FirstSteps steps={steps} onHide={() => closeFirstSteps(myId)} /> : <NextStep next={next} />}
+      {!ready ? <SoftSkeleton rows={1} /> : showSteps ? <FirstSteps steps={steps} /> : <NextStep next={next} />}
     </Block>
   )
 }

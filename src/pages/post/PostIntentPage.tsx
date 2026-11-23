@@ -25,7 +25,7 @@ import { TEMPLATE_BY_KEY } from './templates'
  */
 let snapshot: { draft: Draft; step: number; tried: string | null; loadedFor: string | null; posted: Intent | null } | null = null
 
-/** /app/post — ชวนเล่น, one question at a time: what · topic · when · a line · preview. ?edit=<id> edits one of mine. */
+/** Invite composer, one question at a time: what · topic · when · a line · preview. ?edit=<id> edits one of mine. */
 export default function PostIntentPage() {
   const me = useMoshi((s) => s.me)
   const activeCount = useMoshi((s) => s.myIntents.length)
@@ -93,7 +93,7 @@ export default function PostIntentPage() {
 
   const stopEditing = () => {
     setAskingStop(false)
-    navigate('/app/post', { replace: true })
+    navigate('/app/people?tab=invites', { replace: true })
     window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' })
   }
   // leaving an edit with changes asks first
@@ -215,6 +215,7 @@ export default function PostIntentPage() {
   return (
     <>
       <PageHeader
+        back={editing ? undefined : '/app/people?tab=invites'}
         title={<KineticText key={editing ? 'edit' : 'new'} text={editing ? t('แก้โพสต์ชวนเล่น', 'Edit your invite') : t('ชวนเล่น', 'Invite to play')} />}
         subtitle={editing ? t('แก้ได้ทุกข้อ แล้วกดอัปเดต', 'Change anything, then update') : t('ชวนคนที่ชอบเรื่องเดียวกันมาเล่นด้วยกัน', 'Invite people who love the same things')}
       />

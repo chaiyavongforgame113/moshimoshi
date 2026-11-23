@@ -165,6 +165,7 @@ export interface ChatRow {
   id: string
   requested_by: string
   status: string
+  closed_at?: string | null
   icebreaker: string | null
   created_at: string
   /** 'hello' | 'intro' (20261117000001_lifestage_intro_watch.sql; absent before it runs) */

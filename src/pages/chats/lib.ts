@@ -30,12 +30,12 @@ export function chatPhase(chat: Chat): ChatPhase {
 
 /** The chat a "ทักแชท" button opens instead of a new hello (undefined = send one). Only a hello they sent and we set aside can be answered with a new one. */
 export function chatToOpen(chats: Chat[], userId: string): Chat | undefined {
-  return chats.find((c) => c.withUserId === userId && !(c.status === 'ended' && c.requestedBy === userId))
+  return chats.find((c) => c.withUserId === userId && (c.closedAt || !(c.status === 'ended' && c.requestedBy === userId)))
 }
 
 /** They said hi, we said "ไว้ก่อน", and we never wrote anything: hide it from our list. */
 export function setAside(chat: Chat, isMine: (id: string) => boolean): boolean {
-  return chat.status === 'ended' && chat.requestedBy === chat.withUserId && !chat.messages.some((m) => isMine(m.userId))
+  return !chat.closedAt && chat.status === 'ended' && chat.requestedBy === chat.withUserId && !chat.messages.some((m) => isMine(m.userId))
 }
 
 export function lastMessage(chat: Chat): ChatMessage | undefined {

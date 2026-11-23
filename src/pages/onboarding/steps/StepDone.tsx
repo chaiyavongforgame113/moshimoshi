@@ -19,8 +19,7 @@ const TUNE_MS = 1500
 
 /**
  * The finish: น้องโมชิ reveals today's wavelength pick ("คลื่นของวันนี้", only "ถูกคอ" and up),
- * with the signal and the first reason. It's the same person home and the People tab offer
- * today, so the "ทักแชท" first step names who they just met. The single next step is the button below (home).
+ * with the signal and the first reason. The button below opens the full Wavelength tab.
  */
 export function StepDone({ desktop, pulse, onOpenProfile }: Pick<StepProps, 'desktop'> & { pulse: number; onOpenProfile: (userId: string) => void }) {
   const me = useMoshi((s) => s.me)

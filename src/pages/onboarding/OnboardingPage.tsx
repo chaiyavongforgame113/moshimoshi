@@ -1,30 +1,25 @@
 import { AnimatePresence, MotionConfig, motion, type Variants } from 'motion/react'
-import { ArrowRight, Check, ChevronLeft, MoonStar } from 'lucide-react'
+import { ArrowRight, Check, ChevronLeft, Radio } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import type { MochiExpression } from '@/components/three'
 import { Avatar, IconButton, LangToggle } from '@/components/ui'
 import { useDataMode, useDataReady, useRooms, useServerFeatures } from '@/data/hooks'
-import { OWN_PROMPT_ID } from '@/data/tags'
+import { DEMO_ME } from '@/data/mock'
 import { useIsDesktop } from '@/lib/hooks'
 import { getLang, t } from '@/lib/i18n'
 import { ease, spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import type { User } from '@/lib/types'
 import {
-  autoBio,
   buildIntent,
-  cleanPrompts,
-  defaultRooms,
   initialDraft,
-  knownRooms,
   isOptional,
   lookPatch,
   questionCount,
   questionOf,
   SCREEN_ORDER,
   screenFlow,
-  textLength,
   validate,
   type Draft,
   type DraftPatch,
@@ -46,7 +41,6 @@ import { StepLoves } from './steps/StepLoves'
 import { StepMochi } from './steps/StepMochi'
 import { StepName } from './steps/StepName'
 import { StepOnline } from './steps/StepOnline'
-import { StepRooms } from './steps/StepRooms'
 import { StepRules } from './steps/StepRules'
 import { StepStory } from './steps/StepStory'
 import { StepStyle } from './steps/StepStyle'
@@ -96,7 +90,9 @@ function Onboarding() {
   const desktop = useIsDesktop()
   const navigate = useNavigate()
 
-  const [draft, setDraft] = useState<Draft>(() => snapshot?.draft ?? initialDraft(me, onboarded))
+  const [draft, setDraft] = useState<Draft>(() =>
+    snapshot?.draft ?? initialDraft(me, onboarded, mode === 'demo' && !onboarded && me.bio === DEMO_ME.bio ? '' : me.bio),
+  )
   const [firstTime] = useState(() => snapshot?.firstTime ?? !onboarded)
   const [screen, setScreen] = useState<ScreenKey>(() => snapshot?.screen ?? 'name')
   const [dir, setDir] = useState(1)
@@ -136,14 +132,6 @@ function Onboarding() {
     if (was.loves.length < draft.loves.length || was.tags.length < draft.tags.length || was.lifeStages.length < draft.lifeStages.length) flash('happy', 700)
   }, [draft, flash])
 
-  // the rooms screen always opens with rooms joined for them. goTo picks on the way in; this covers a
-  // room list that arrives later (a slow or late load, a restored draft, picks whose rooms closed).
-  // Never over their own choice: once they tap a room, roomsTouched stops it.
-  useEffect(() => {
-    if (screen !== 'rooms' || draft.roomsTouched || !rooms.length || knownRooms(draft.rooms, rooms).length) return
-    update((d) => ({ rooms: defaultRooms(d, rooms) }))
-  }, [screen, rooms, draft.roomsTouched, draft.rooms, update])
-
   const done = screen === 'done'
   const flow = screenFlow(draft, flowOptions)
   const at = Math.max(0, flow.indexOf(screen))
@@ -151,37 +139,27 @@ function Onboarding() {
   const expression: MochiExpression = done ? 'happy' : (flashExpr ?? (screen === 'name' && nameOk ? 'happy' : screen === 'rules' ? 'wink' : draft.face))
 
   const settledName = useDebounced(draft.name, 700)
-  const settledStory = useDebounced(draft.prompts[0]?.text ?? '', 900)
+  const settledStory = useDebounced(draft.bio, 900)
   const line = mascotLine(screen, draft)
   const reaction = mascotReaction(screen, draft, { settledName, settledStory, lookChanged })
   const optional = isOptional(screen, !firstTime)
-  // rooms: only rooms that still exist count, and a server with no rooms yet must not trap anyone there
-  const check: StepCheck =
-    screen !== 'rooms' ? validate(screen, draft) : rooms.length ? validate(screen, { ...draft, rooms: knownRooms(draft.rooms, rooms) }) : { ok: true }
-  // the story is optional, but a half-written one says what's missing (with a small Skip) instead of offering Skip alone
-  const story = draft.prompts[0]
-  const started =
-    screen === 'story' && (textLength(story?.text ?? '') > 0 || (story?.promptId === OWN_PROMPT_ID && textLength(story.question ?? '') > 0))
-
-  // live: leaving early needs a name, and finishes onboarding with what we know so far (no age limit);
-  // answers already given are kept, so "ไว้ทีหลัง" never throws anything away. No board post yet.
-  const canLeave = mode === 'demo' || onboarded || nameOk
+  const check: StepCheck = validate(screen, draft)
+  // In live mode Later completes a new profile, so it needs a valid story as well as a name.
+  const canLeave = screen !== 'story' && (mode === 'demo' || onboarded || (nameOk && validate('story', draft).ok))
   // only saved when the screen was on offer (otherwise a profile's saved stages stay as they are)
   const lifePatch: Partial<User> = flowOptions.lifeStages ? { lifeStages: draft.lifeStages } : {}
   const leaveEarly = () => {
-    if (mode !== 'live' || onboarded) return
+    if (!canLeave || mode !== 'live' || onboarded) return
     completeOnboarding({
       ...lookPatch(draft),
       name: draft.name.trim(),
       color: draft.color,
       tags: draft.tags,
       loves: draft.loves,
-      prompts: cleanPrompts(draft),
+      bio: draft.bio.trim(),
       online: draft.online,
       chatStyle: draft.chatStyle,
       ...lifePatch,
-      ...(draft.rooms.length ? { rooms: rooms.length ? knownRooms(draft.rooms, rooms) : draft.rooms } : {}),
-      ...(firstTime && draft.tags.length ? { bio: autoBio(draft) } : {}),
     })
   }
 
@@ -189,8 +167,6 @@ function Onboarding() {
     setDir(SCREEN_ORDER.indexOf(to) > SCREEN_ORDER.indexOf(screen) ? 1 : -1)
     setNudge(0)
     setNavigated(true)
-    // the rooms screen opens with picks already made (until they choose for themselves)
-    if (to === 'rooms' && !draft.roomsTouched) update((d) => ({ rooms: defaultRooms(d, rooms) }))
     if (to === 'done') setPulse((n) => n + 1) // one more sparkle pop to celebrate
     setScreen(to)
   }
@@ -202,13 +178,10 @@ function Onboarding() {
       color: draft.color,
       tags: draft.tags,
       loves: draft.loves,
-      prompts: cleanPrompts(draft),
+      bio: draft.bio.trim(),
       online: draft.online,
       chatStyle: draft.chatStyle,
       ...lifePatch,
-      // exactly the rooms they joined here (a pick whose room has since closed is dropped)
-      rooms: rooms.length ? knownRooms(draft.rooms, rooms) : draft.rooms,
-      ...(firstTime ? { bio: autoBio(draft) } : {}),
     }
     completeOnboarding(patch)
     // re-committing (e.g. after going back) replaces the intent instead of stacking another
@@ -218,31 +191,29 @@ function Onboarding() {
     if (intent) postedIntent.current = postIntent(intent).id
   }
 
-  /** On to the next screen; finishing the rooms screen saves everything. */
+  /** Save the profile before Wavelength reads the new match results. */
   const advance = () => {
     if (done) {
-      // replace: Back from home must not land on question 1 again
-      navigate('/app', { replace: true })
+      navigate('/app/people', { replace: true })
       return
     }
-    if (screen === 'rooms') commit()
     const to = flow[at + 1]
+    if (to === 'done') commit()
     if (to) goTo(to)
   }
 
   const next = () => {
     if (check.ok) return advance()
-    // untouched optional screen: the one button reads "ข้ามไปก่อน", so Enter skips too
-    if (optional && !started) return advance()
+    // An unanswered optional screen says "ข้ามไปก่อน", so Enter skips too.
+    if (optional) return advance()
     setNudge((n) => n + 1)
   }
 
   const back = () => (at === 0 ? navigate(onboarded ? '/app' : '/') : goTo(flow[at - 1]))
 
-  // from the finish to a profile: home takes onboarding's place in history first, so the profile's
-  // Back lands on home (one navigation at a time: a second one started mid-way would cancel the first)
+  // Give the profile a Wavelength page to go back to.
   const openProfile = (id: string) => {
-    void Promise.resolve(navigate('/app', { replace: true })).then(() => navigate(`/app/people/${id}`))
+    void Promise.resolve(navigate('/app/people', { replace: true })).then(() => navigate(`/app/people/${id}`))
   }
 
   // Enter = next on one-line fields (and when nothing in particular has focus), never mid-IME composition
@@ -262,17 +233,13 @@ function Onboarding() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // rooms: the button says what it does ("เข้าร่วม 3 ห้อง แล้วไปต่อ"); with no rooms on the server, just Next
-  const joining = screen === 'rooms' ? knownRooms(draft.rooms, rooms).length : 0
   const cta = done
-    ? t('ไปคืนนี้กันเลย', 'On to Tonight')
-    : joining
-      ? t(`เข้าร่วม ${joining} ห้อง แล้วไปต่อ`, `Join ${joining} ${joining === 1 ? 'room' : 'rooms'} and continue`)
-      : screen === 'rules'
-        ? t('ตกลง', 'Got it')
-        : t('ไปต่อ', 'Next')
+    ? t('ไปดูคนคลื่นเดียวกัน', 'Explore Wavelength')
+    : screen === 'rules'
+      ? t('ตกลง', 'Got it')
+      : t('ไปต่อ', 'Next')
   const ctaIcon = done ? (
-    <MoonStar size={20} aria-hidden />
+    <Radio size={20} aria-hidden />
   ) : screen === 'rules' ? (
     <Check size={20} strokeWidth={2.6} aria-hidden />
   ) : (
@@ -280,8 +247,7 @@ function Onboarding() {
   )
 
   // phones: the mochi screen is tight, so น้องโมชิ's bubble shrinks and its reply floats over the 3D mochi
-  // the rooms screen needs the height for its cards, too
-  const tight = !desktop && (screen === 'mochi' || screen === 'rooms')
+  const tight = !desktop && screen === 'mochi'
   const stepProps = { draft, update, desktop }
   const stepBody = (() => {
     switch (screen) {
@@ -307,8 +273,6 @@ function Onboarding() {
         return <StepStyle {...stepProps} />
       case 'story':
         return <StepStory {...stepProps} />
-      case 'rooms':
-        return <StepRooms {...stepProps} />
       default:
         return <StepDone desktop={desktop} pulse={pulse} onOpenProfile={openProfile} />
     }
@@ -341,7 +305,6 @@ function Onboarding() {
       nudge={nudge}
       onNext={next}
       onSkip={optional ? advance : undefined}
-      started={started}
     />
   )
 

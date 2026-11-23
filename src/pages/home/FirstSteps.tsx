@@ -1,46 +1,39 @@
 import { motion, useReducedMotion } from 'motion/react'
-import { ArrowRight, Check, DoorOpen, HeartHandshake, MessageCircleHeart, Radio, Sparkles, Users } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Avatar, Button, ButtonLink } from '@/components/ui'
-import { useDailyPick, useIntroRequests, useIntroWith, useMyId, usePerson, useRooms, useSaidHi } from '@/data/hooks'
+import { ArrowRight, DoorOpen, Radio, Sparkles } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { Avatar, ButtonLink } from '@/components/ui'
+import { useMyId, useRooms } from '@/data/hooks'
 import { t } from '@/lib/i18n'
-import { fadeUp, spring, stagger } from '@/lib/motion'
+import { fadeUp, spring } from '@/lib/motion'
 import { useProgress, useSaidInRoom } from '@/lib/progress'
 import { useMoshi } from '@/lib/store'
 import { useWave, waveHref } from '@/pages/me/wave'
-import { introOffered } from '@/pages/people/intro'
-import { IntroButton } from '@/pages/people/IntroButton'
 import { roomLabel } from './greeting'
+
+export const FIRST_STEPS_TOTAL = 2
 
 export interface FirstStepsState {
   myId: string
-  /** (a) I said hi to someone myself: a hello I sent, a line I wrote in a chat, or an intro I asked Mochi for */
-  chatted: boolean
-  /** (b) I said something in a room */
+  /** I said something in a room. */
   roomSaid: boolean
   /**
-   * (c) I played "จูนคลื่น" (its piece of my wave: one round's worth of picks). With fewer than 3
+   * I played "จูนคลื่น" (one round's worth of picks). With fewer than 3
    * interests nobody can reach "ถูกคอ" yet, so those come first and the step isn't done until then.
    * The rest of a clearer wave is the WaveClarity card's job on my profile.
    */
   tuned: boolean
-  /** my wave, for step (c)'s pieces */
+  /** My wave, for the tuning step. */
   wave: ReturnType<typeof useWave>
   done: number
-  stepsSeen: boolean
   stepsClosed: boolean
+  followUpSeen: boolean
 }
 
 /**
- * The three first steps, each ticked by what I've actually done after joining: nothing to tick
- * by hand, and nothing that onboarding or demo mode's ready-made chats already did for me.
+ * The two first steps are ticked by what I've actually done after joining.
  */
 export function useFirstSteps(): FirstStepsState {
   const myId = useMyId()
-  const saidHi = useSaidHi()
-  // asking Mochi to introduce us is reaching out too (the gentle way)
-  const askedIntro = useMoshi((s) => s.intros.some((i) => i.direction === 'outgoing'))
-  const chatted = saidHi || askedIntro
   const roomSaid = useSaidInRoom(myId)
   const wave = useWave()
   const progress = useProgress(myId)
@@ -48,17 +41,16 @@ export function useFirstSteps(): FirstStepsState {
   const tuned = !!interests?.done && !!tune?.done
   return {
     myId,
-    chatted,
     roomSaid,
     tuned,
     wave,
-    done: [chatted, roomSaid, tuned].filter(Boolean).length,
-    stepsSeen: progress.stepsSeen === true,
+    done: [roomSaid, tuned].filter(Boolean).length,
     stepsClosed: progress.stepsClosed === true,
+    followUpSeen: progress.stepsFollowUpSeen === true,
   }
 }
 
-/** The two pieces of my wave (pages/me/wave.ts) step (c) looks at. */
+/** The two pieces of my wave the tuning step looks at. */
 function stepPieces(wave: ReturnType<typeof useWave>) {
   return {
     interests: wave.items.find((s) => s.item.key === 'interests'),
@@ -67,14 +59,11 @@ function stepPieces(wave: ReturnType<typeof useWave>) {
 }
 
 /**
- * "เริ่มต้น 3 ขั้น" for someone new: say hi to one person on your wavelength, say hi in a room,
- * play "จูนคลื่น" (its button opens /app/tune; it ticks once a round's worth of picks is in). Each
- * row has the one button that does it; the first open step's button is the page's main action.
+ * Say hi in a room and play "จูนคลื่น". Show onboarding or the first incomplete step.
  */
-export function FirstSteps({ steps, onHide }: { steps: FirstStepsState; onHide: () => void }) {
+export function FirstSteps({ steps }: { steps: FirstStepsState }) {
   const onboarded = useMoshi((s) => s.onboarded)
-  const pick = useDailyPick()
-  const pickUser = usePerson(pick?.userId)
+  const reduce = useReducedMotion()
   const myRooms = useMoshi((s) => s.me.rooms)
   const rooms = useRooms()
   const firstRoom = myRooms.map((id) => rooms.find((r) => r.id === id)).find((r) => !!r)
@@ -84,34 +73,6 @@ export function FirstSteps({ steps, onHide }: { steps: FirstStepsState; onHide: 
   const thin = !!interests && !interests.done
   const piece = thin ? interests : tune
 
-  const introIn = useIntroRequests().incoming[0]
-  const introFrom = usePerson(introIn?.withUserId)
-  const pickIntro = useIntroWith(pickUser?.id)
-  const gentle = !!pickUser && introOffered(pickIntro.state)
-  const chatRow: StepRow = introFrom
-    ? {
-        // someone asked Mochi about me: answering that is the easiest first hello there is
-        key: 'chat',
-        done: steps.chatted,
-        title: t('ทักแชทคนคลื่นเดียวกัน 1 คน', 'Say hi to one person on your wavelength'),
-        sub: t(`โมชิอยากแนะนำ ${introFrom.name} ให้รู้จัก ไปดูกันเลย`, `Mochi would love for you to meet ${introFrom.name}. Take a look`),
-        action: { to: '/app/chats', label: t('ไปดูคำแนะนำ', 'See the intro'), icon: <HeartHandshake size={18} /> },
-      }
-    : {
-        key: 'chat',
-        done: steps.chatted,
-        title: t('ทักแชทคนคลื่นเดียวกัน 1 คน', 'Say hi to one person on your wavelength'),
-        sub: pickUser
-          ? gentle
-            ? t(`เริ่มจาก ${pickUser.name} คลื่นของวันนี้ก็ได้นะ หรือให้โมชิแนะนำให้ก็ได้`, `Start with ${pickUser.name}, today's wavelength pick. Or let Mochi introduce you`)
-            : t(`เริ่มจาก ${pickUser.name} คลื่นของวันนี้ก็ได้นะ`, `Start with ${pickUser.name}, today's wavelength pick`)
-          : t('ไปดูกันว่าใครคลื่นตรงกับเราบ้าง', "See who's on your wavelength"),
-        action: pickUser
-          ? { to: `/app/people/${pickUser.id}?send=1`, label: t('ทักแชท', 'Say hi'), icon: <MessageCircleHeart size={18} /> }
-          : { to: '/app/people', label: t('ไปดูคนคลื่นเดียวกัน', 'See people'), icon: <Users size={18} /> },
-        // the gentle option next to it: Mochi asks them first
-        extra: gentle && pickUser ? <IntroButton userId={pickUser.id} size="sm" /> : undefined,
-      }
   const roomRow: StepRow = {
     key: 'room',
     done: steps.roomSaid,
@@ -132,18 +93,24 @@ export function FirstSteps({ steps, onHide }: { steps: FirstStepsState; onHide: 
       ? { to: waveHref(piece.item.open(wave.context)), label: piece.item.cta(piece.left), icon: <Radio size={18} /> }
       : { to: '/app/tune', label: t('เล่นจูนคลื่น', 'Play this or that'), icon: <Radio size={18} /> },
   }
-  const rows = thin ? [waveRow, chatRow, roomRow] : [chatRow, roomRow, waveRow]
+  const rows = thin ? [waveRow, roomRow] : [roomRow, waveRow]
 
-  // the page's one main button: getting to know each other first, else the first open step
-  const lead = onboarded ? rows.find((r) => !r.done)?.key : 'onboard'
+  const currentIndex = rows.findIndex((r) => !r.done)
+  const current = rows[currentIndex]
 
   return (
     <div>
       <Progress done={steps.done} />
 
-      <motion.ol variants={stagger(0.07)} initial="hidden" animate="show" className="mt-3 space-y-2.5">
-        {!onboarded && (
-          <motion.li variants={fadeUp}>
+      {(!onboarded || current) && (
+        <motion.div
+          key={onboarded ? current?.key : 'onboard'}
+          variants={fadeUp}
+          initial={reduce ? false : 'hidden'}
+          animate="show"
+          className="mt-3"
+        >
+          {!onboarded ? (
             <Row
               mark={<Sparkles size={18} strokeWidth={2.4} aria-hidden />}
               markLabel={t('ก่อนเริ่ม', 'Before you start')}
@@ -158,102 +125,40 @@ export function FirstSteps({ steps, onHide }: { steps: FirstStepsState; onHide: 
                 </ButtonLink>
               }
             />
-          </motion.li>
-        )}
-        {rows.map((r, i) => (
-          <motion.li key={r.key} variants={fadeUp}>
+          ) : current && (
             <Row
-              done={r.done}
-              mark={r.done ? undefined : <span className="font-display text-base font-bold">{i + 1}</span>}
-              markLabel={r.done ? t('ทำแล้ว', 'Done') : t(`ขั้นที่ ${i + 1}`, `Step ${i + 1}`)}
-              title={r.title}
-              sub={r.done ? t('เรียบร้อย เก่งมากเลย', 'Done. Nice one!') : r.sub}
+              mark={<span className="font-display text-base font-bold">{currentIndex + 1}</span>}
+              markLabel={t(`ขั้นที่ ${currentIndex + 1}`, `Step ${currentIndex + 1}`)}
+              title={current.title}
+              sub={current.sub}
               action={
-                !r.done && (
-                  <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                    <ButtonLink
-                      to={r.action.to}
-                      variant={lead === r.key ? 'primary' : 'secondary'}
-                      size={lead === r.key ? 'md' : 'sm'}
-                      icon={r.action.icon}
-                      className={lead === r.key ? 'w-full sm:w-auto' : ''}
-                    >
-                      {r.action.label}
-                    </ButtonLink>
-                    {r.extra}
-                  </div>
-                )
+                <ButtonLink to={current.action.to} icon={current.action.icon} className="w-full sm:w-auto">
+                  {current.action.label}
+                </ButtonLink>
               }
             />
-          </motion.li>
-        ))}
-      </motion.ol>
-
-      <HideCard onHide={onHide} />
-    </div>
-  )
-}
-
-/** "ซ่อนการ์ดนี้": the card never comes back, so one small question first. */
-function HideCard({ onHide }: { onHide: () => void }) {
-  const [asking, setAsking] = useState(false)
-  const keep = useRef<HTMLButtonElement>(null)
-  const hide = useRef<HTMLButtonElement>(null)
-  const wasAsking = useRef(false)
-  // focus follows: onto "ยังไม่ซ่อน" when the question opens, back to "ซ่อนการ์ดนี้" when it closes
-  useEffect(() => {
-    if (asking) keep.current?.focus()
-    else if (wasAsking.current) hide.current?.focus()
-    wasAsking.current = asking
-  }, [asking])
-
-  if (!asking) {
-    return (
-      <div className="mt-3 flex justify-end">
-        <Button ref={hide} variant="ghost" size="sm" onClick={() => setAsking(true)}>
-          {t('ซ่อนการ์ดนี้', 'Hide this card')}
-        </Button>
-      </div>
-    )
-  }
-  return (
-    <div
-      role="group"
-      aria-label={t('ซ่อนการ์ดเริ่มต้น 3 ขั้น', 'Hide the first steps')}
-      className="mt-3 flex flex-wrap items-center justify-end gap-2 rounded-[1.5rem] bg-white/80 p-2 pl-4"
-    >
-      <p className="min-w-0 flex-[1_1_12rem] text-sm text-ink">
-        {t('ซ่อนแล้วการ์ดนี้จะไม่กลับมาอีกนะ แต่ทุกขั้นยังทำเองได้ตลอด', "Once hidden, this card won't come back. You can still do every step on your own")}
-      </p>
-      <Button ref={keep} variant="secondary" size="sm" onClick={() => setAsking(false)}>
-        {t('ยังไม่ซ่อน', 'Keep it')}
-      </Button>
-      <Button variant="ghost" size="sm" onClick={onHide}>
-        {t('ซ่อนเลย', 'Hide it')}
-      </Button>
+          )}
+        </motion.div>
+      )}
     </div>
   )
 }
 
 interface StepRow {
-  key: 'chat' | 'room' | 'wave'
+  key: 'room' | 'wave'
   done: boolean
   title: string
   sub: string
   action: { to: string; label: string; icon: ReactNode }
-  /** a quieter second option next to the action */
-  extra?: ReactNode
 }
 
 function Row({
-  done = false,
   mark,
   markLabel,
   title,
   sub,
   action,
 }: {
-  done?: boolean
   mark?: ReactNode
   markLabel: string
   title: string
@@ -261,16 +166,13 @@ function Row({
   action?: ReactNode
 }) {
   return (
-    <div
-      className={`grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-3 rounded-[1.5rem] p-3 ${
-        done ? 'bg-mint/25' : 'bg-white/90 shadow-[var(--shadow-soft)]'
-      }`}
-    >
-      <StepMark done={done} label={markLabel}>
-        {mark}
-      </StepMark>
+    <div className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-3 rounded-[1.5rem] bg-white/90 p-3 shadow-[var(--shadow-soft)]">
+      <span className="inline-flex size-10 items-center justify-center rounded-full bg-butter/70 text-ink shadow-[inset_0_-3px_0_rgb(59_38_34/0.08)]">
+        <span className="sr-only">{markLabel}</span>
+        <span aria-hidden className="inline-flex">{mark}</span>
+      </span>
       <div className="min-w-0 self-center">
-        <p className={`font-display leading-snug font-semibold ${done ? 'text-ink-soft' : 'text-ink'}`}>{title}</p>
+        <p className="font-display leading-snug font-semibold text-ink">{title}</p>
         <p className="text-sm text-ink-soft">{sub}</p>
         {action && <div className="mt-2.5">{action}</div>}
       </div>
@@ -278,37 +180,7 @@ function Row({
   )
 }
 
-/** Number bubble that turns into a mint tick once the step is done. */
-function StepMark({ done, label, children }: { done: boolean; label: string; children?: ReactNode }) {
-  const reduce = useReducedMotion()
-  return (
-    <span
-      className={`relative inline-flex size-10 items-center justify-center rounded-full text-ink ${
-        done ? 'bg-mint shadow-[inset_0_-3px_0_rgb(59_38_34/0.12)]' : 'bg-butter/70 shadow-[inset_0_-3px_0_rgb(59_38_34/0.08)]'
-      }`}
-    >
-      <span className="sr-only">{label}</span>
-      {done ? (
-        <motion.span
-          key="tick"
-          initial={reduce ? false : { scale: 0, rotate: -40 }}
-          animate={{ scale: 1, rotate: 0 }}
-          transition={spring.bouncy}
-          className="inline-flex"
-          aria-hidden
-        >
-          <Check size={20} strokeWidth={3} />
-        </motion.span>
-      ) : (
-        <span aria-hidden className="inline-flex">
-          {children}
-        </span>
-      )}
-    </span>
-  )
-}
-
-/** "ทำแล้ว 1 จาก 3" with a soft bar that fills as steps get ticked. */
+/** Progress through the first steps. */
 function Progress({ done }: { done: number }) {
   const reduce = useReducedMotion()
   return (
@@ -316,21 +188,21 @@ function Progress({ done }: { done: number }) {
       <Avatar color="peach" size={40} face={done ? 'happy' : 'wink'} />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-ink">
-          {t(`เริ่มต้น 3 ขั้น · ทำแล้ว ${done} จาก 3`, `3 first steps · ${done} of 3 done`)}
+          {t(`เริ่มต้น ${FIRST_STEPS_TOTAL} ขั้น · ทำแล้ว ${done} จาก ${FIRST_STEPS_TOTAL}`, `${FIRST_STEPS_TOTAL} first steps · ${done} of ${FIRST_STEPS_TOTAL} done`)}
         </p>
         <div
           role="progressbar"
           aria-valuemin={0}
-          aria-valuemax={3}
+          aria-valuemax={FIRST_STEPS_TOTAL}
           aria-valuenow={done}
-          aria-valuetext={t(`ทำแล้ว ${done} จาก 3 ขั้น`, `${done} of 3 steps done`)}
-          aria-label={t('ความคืบหน้าเริ่มต้น 3 ขั้น', 'First steps progress')}
+          aria-valuetext={t(`ทำแล้ว ${done} จาก ${FIRST_STEPS_TOTAL} ขั้น`, `${done} of ${FIRST_STEPS_TOTAL} steps done`)}
+          aria-label={t('ความคืบหน้าการเริ่มต้น', 'First steps progress')}
           className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-cream-3"
         >
           <motion.span
             className="block h-full rounded-full bg-linear-to-r from-mint to-sky"
             initial={reduce ? false : { width: 0 }}
-            animate={{ width: `${(done / 3) * 100}%` }}
+            animate={{ width: `${(done / FIRST_STEPS_TOTAL) * 100}%` }}
             transition={spring.soft}
           />
         </div>

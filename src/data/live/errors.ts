@@ -52,6 +52,8 @@ const KEYS: Record<string, Txt> = {
   target_not_found: L('ไม่เจอคนนี้แล้ว อาจปิดบัญชีไปแล้วนะ', "We can't find this person. They may have closed their account"),
   chat_not_found: L('ไม่เจอแชทนี้แล้วนะ', "We can't find this chat anymore"),
   chat_not_pending: L('คำทักนี้ตอบไปแล้วนะ', 'This hello has already been answered'),
+  chat_not_active: L('ปิดได้เฉพาะแชทที่กำลังคุยกันอยู่', 'Only an active chat can be closed'),
+  chat_closed: L('แชทนี้ปิดสำหรับทั้งสองคนแล้ว', 'This chat is closed for both people'),
   // Mochi's warm intros (20261117000001_lifestage_intro_watch.sql). Never says "turned down".
   cannot_intro_self: L('ให้โมชิแนะนำตัวเองให้ตัวเองไม่ได้น้า', "Mochi can't introduce you to yourself, silly"),
   already_chatting: L('สองคนนี้มีแชทกันอยู่แล้ว ไปคุยกันต่อในแชทได้เลย', 'You two already have a chat. Pick it up there'),

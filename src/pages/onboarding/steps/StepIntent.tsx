@@ -7,8 +7,8 @@ import { t } from '@/lib/i18n'
 import { fadeUp, spring } from '@/lib/motion'
 import { useMoshi } from '@/lib/store'
 import type { IntentTemplate } from '@/lib/types'
-import type { StepProps } from '../model'
-import { INTENT_TEMPLATES } from '../options'
+import { intentChoices, type StepProps } from '../model'
+import { INTENT_TEMPLATES, TEMPLATE_BY_ID } from '../options'
 import { keyWiggle } from '../parts/hooks'
 import { PostPreview } from '../parts/PostPreview'
 
@@ -16,39 +16,45 @@ import { PostPreview } from '../parts/PostPreview'
 const hasPostHere = (tpl: IntentTemplate | null) => !!tpl && tpl !== 'talk'
 
 /**
- * 6 · what brings them here: one card. "คุยเรื่อง…" asks its topic on the next screen
- * (and shows the post there); the others show the post they'll get right here, editable.
+ * 6 · what brings them here: pick any number of goals and choose one for the first invite.
  */
 export function StepIntent({ draft, update }: StepProps) {
   const province = useMoshi((s) => s.me.province)
   const rooms = useRooms()
   const reduce = useReducedMotion()
+  const choices = intentChoices(draft)
   const postBox = useRef<HTMLDivElement>(null)
   // set when a tap reveals the post, so it slides into view once it has opened (not when coming back to this screen)
   const revealed = useRef(false)
 
   const showPost = () => postBox.current?.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' })
-  const pick = (tpl: IntentTemplate) => {
-    const reveals = !hasPostHere(draft.intent) && hasPostHere(tpl)
-    update({ intent: tpl })
+  const revealPost = (next: IntentTemplate | null) => {
+    const reveals = !hasPostHere(draft.intent) && hasPostHere(next)
     if (!reveals) return
     // reduced motion: it appears at once, so bring it into view after this render
     if (reduce) requestAnimationFrame(() => requestAnimationFrame(showPost))
     else revealed.current = true
   }
+  const toggle = (tpl: IntentTemplate) => {
+    const nextChoices = choices.includes(tpl) ? choices.filter((value) => value !== tpl) : [...choices, tpl]
+    const intent = draft.intent && nextChoices.includes(draft.intent) ? draft.intent : (nextChoices[0] ?? null)
+    update({ intents: nextChoices, intent })
+    revealPost(intent)
+  }
 
   return (
     <div className="space-y-3">
+      <p className="text-sm text-ink-soft">{t('เลือกได้หลายอย่าง', 'Pick all that apply')}</p>
       <motion.div variants={fadeUp} role="group" aria-label={t('มาที่นี่เพื่อ', 'Here for')} className="grid grid-cols-2 gap-2">
         {INTENT_TEMPLATES.map((tpl) => {
-          const on = draft.intent === tpl.id
+          const on = choices.includes(tpl.id)
           const p = MOCHI[tpl.color]
           return (
             <motion.button
               key={tpl.id}
               type="button"
               aria-pressed={on}
-              onClick={() => pick(tpl.id)}
+              onClick={() => toggle(tpl.id)}
               whileTap={reduce ? undefined : { scale: 0.95 }}
               whileHover={reduce ? undefined : { y: -2 }}
               transition={spring.bouncy}
@@ -89,6 +95,24 @@ export function StepIntent({ draft, update }: StepProps) {
           )
         })}
       </motion.div>
+
+      {choices.length > 1 && (
+        <label className="flex flex-col gap-1 text-sm font-semibold text-ink">
+          {t('ใช้หัวข้อนี้สำหรับคำชวนแรก', 'Use this for your first invite')}
+          <select
+            className="min-h-11 rounded-2xl border border-line bg-white px-3"
+            value={draft.intent ?? ''}
+            onChange={(event) => {
+              const intent = choices.find((choice) => choice === event.target.value)
+              if (!intent) return
+              update({ intent })
+              revealPost(intent)
+            }}
+          >
+            {choices.map((choice) => <option key={choice} value={choice}>{TEMPLATE_BY_ID[choice].label}</option>)}
+          </select>
+        </label>
+      )}
 
       <AnimatePresence initial={false}>
         {hasPostHere(draft.intent) && (

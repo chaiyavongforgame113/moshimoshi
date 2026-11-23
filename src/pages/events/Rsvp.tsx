@@ -41,6 +41,7 @@ export function RsvpButton({
   onToggle,
   size,
   quiet,
+  compact,
   className = '',
 }: {
   session: Session
@@ -48,6 +49,7 @@ export function RsvpButton({
   onToggle: () => void
   size?: 'md' | 'lg'
   quiet?: boolean
+  compact?: boolean
   className?: string
 }) {
   return (
@@ -59,6 +61,7 @@ export function RsvpButton({
       iconOff={<CalendarHeart size={17} strokeWidth={2.4} aria-hidden />}
       srExtra={t(` ${session.title}`, `: ${session.title}`)}
       quiet={quiet}
+      compact={compact}
       size={size}
       className={className}
     />

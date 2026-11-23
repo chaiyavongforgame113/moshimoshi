@@ -1,6 +1,6 @@
 import { motion, useReducedMotion } from 'motion/react'
 import { Heart, MessageCircleHeart } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { MochiStage, View3D } from '@/components/three'
 import { zoneAction } from '@/components/ui'
 import { MOCHI } from '@/lib/colors'
@@ -14,39 +14,56 @@ import { MOOD_BY_KEY, MOODS } from './moods'
 
 /**
  * Home zone 1: the 3D mascot asks "วันนี้เป็นไงบ้าง?" and five mood chips answer it.
- * A chip opens the chat with Little Mochi, starting from that mood. "คุยกับโมชิ" (always there),
- * or the mood that's already picked, opens it where we left off, without a new mood turn.
+ * A chip starts the mood conversation inside the card. The header button can reopen it.
  * The zone's tray stays see-through: the 3D canvas sits behind the page, so anything
  * opaque over the mascot's box would hide it.
  */
 export function MochiCard() {
   const mood = useMoshi((s) => s.mood)
   const setMood = useMoshi((s) => s.setMood)
-  const [chat, setChat] = useState<{ open: boolean; mood: Mood | null }>({ open: false, mood: null })
+  const [chat, setChat] = useState<{ mood: Mood | null } | null>(null)
+  const chatId = useId()
+  const toggle = useRef<HTMLButtonElement>(null)
   const def = mood ? MOOD_BY_KEY[mood] : undefined
 
   const openChat = (m: Mood | null) => {
     if (m) setMood(m)
-    setChat({ open: true, mood: m })
+    setChat({ mood: m })
+  }
+
+  const closeChat = () => {
+    setChat(null)
+    toggle.current?.focus({ preventScroll: true })
   }
 
   return (
-    <>
-      <Block
-        id="home-mochi"
-        tone="peach"
-        // see-through tray: the mascot's 3D shows from behind the page
-        zoneClassName="bg-transparent"
-        title={t('น้องโมชิ', 'Little Mochi')}
-        note={t('อยู่ตรงนี้ เล่าให้ฟังได้ทุกเรื่องเลย', "Right here, ready to listen")}
-        icon={<Heart size={18} strokeWidth={2.4} />}
-        action={
-          <button type="button" onClick={() => openChat(null)} className={zoneAction}>
-            <MessageCircleHeart size={16} strokeWidth={2.4} aria-hidden />
-            <span className="max-[400px]:sr-only">{t('คุยกับโมชิ', 'Chat with Mochi')}</span>
-          </button>
-        }
-      >
+    <Block
+      id="home-mochi"
+      tone="peach"
+      // see-through tray: the mascot's 3D shows from behind the page
+      zoneClassName="bg-transparent"
+      title={t('น้องโมชิ', 'Little Mochi')}
+      note={t('อยู่ตรงนี้ เล่าให้ฟังได้ทุกเรื่องเลย', "Right here, ready to listen")}
+      icon={<Heart size={18} strokeWidth={2.4} />}
+      action={
+        <button
+          ref={toggle}
+          type="button"
+          aria-expanded={!!chat}
+          aria-controls={chat ? chatId : undefined}
+          onClick={chat ? closeChat : () => openChat(null)}
+          className={zoneAction}
+        >
+          <MessageCircleHeart size={16} strokeWidth={2.4} aria-hidden />
+          <span className="max-[400px]:sr-only">
+            {chat ? t('พับแชท', 'Hide chat') : t('คุยกับโมชิ', 'Chat with Mochi')}
+          </span>
+        </button>
+      }
+    >
+      {chat ? (
+        <MochiChat id={chatId} onClose={closeChat} initialMood={chat.mood} />
+      ) : (
         <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-3 sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-x-4">
           <View3D
             className="h-32 w-full sm:row-span-2 sm:h-44"
@@ -65,14 +82,12 @@ export function MochiCard() {
 
           <div role="group" aria-label={t('ความรู้สึกวันนี้', "Today's mood")} className="col-span-2 flex flex-wrap gap-2 sm:col-span-1 sm:col-start-2">
             {MOODS.map((m) => (
-              <MoodChip key={m.key} mood={m.key} on={mood === m.key} onPick={() => openChat(mood === m.key ? null : m.key)} />
+              <MoodChip key={m.key} mood={m.key} on={mood === m.key} onPick={() => openChat(m.key)} />
             ))}
           </div>
         </div>
-      </Block>
-
-      <MochiChat open={chat.open} onClose={() => setChat((c) => ({ ...c, open: false }))} initialMood={chat.mood} />
-    </>
+      )}
+    </Block>
   )
 }
 

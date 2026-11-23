@@ -33,7 +33,7 @@ export interface Draft {
   /** language posts: what they can help with / want to practice (saved Thai for the one-tap languages) */
   give: string
   want: string
-  /** room the post was started from (/app/post?room=…); otherwise picked from the tag */
+  /** room the post was started from (/app/people/invites/compose?room=…); otherwise picked from the tag */
   roomId?: string
   /** editing: the post's saved time label, kept until "when" is touched (a saved date can't be read back) */
   keptWhenLabel?: string

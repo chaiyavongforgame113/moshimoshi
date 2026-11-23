@@ -97,6 +97,7 @@ function ActionFor({
   going,
   onRsvp,
   href,
+  compact = false,
 }: {
   session: Session
   phase: EventPhase
@@ -104,19 +105,22 @@ function ActionFor({
   going: boolean
   onRsvp: () => void
   href: string
+  compact?: boolean
 }) {
-  if (phase === 'upcoming') return <RsvpButton session={session} going={going} onToggle={onRsvp} quiet />
+  if (phase === 'upcoming') return <RsvpButton session={session} going={going} onToggle={onRsvp} quiet compact={compact} />
+  const buttonClass = `relative z-10 h-11 shrink-0 ${compact ? 'max-md:w-11 max-md:gap-0 max-md:px-0' : ''}`
+  const labelClass = compact ? 'max-md:sr-only' : undefined
   if (phase === 'open')
     return (
-      <ButtonLink to={href} variant="secondary" size="sm" icon={<DoorOpen size={17} strokeWidth={2.4} aria-hidden />} className="relative z-10 h-11 shrink-0">
-        {t('เข้าห้องเลย', 'Go in now')}
+      <ButtonLink to={href} variant="secondary" size="sm" icon={<DoorOpen size={17} strokeWidth={2.4} aria-hidden />} className={buttonClass}>
+        <span className={labelClass}>{t('เข้าห้องเลย', 'Go in now')}</span>
         <span className="sr-only">{t(` ${session.title}`, `: ${session.title}`)}</span>
       </ButtonLink>
     )
   if (phase === 'closed' && eventChatVisible(session, now))
     return (
-      <ButtonLink to={eventPath(session.id)} variant="secondary" size="sm" icon={<MessagesSquare size={16} strokeWidth={2.4} aria-hidden />} className="relative z-10 h-11 shrink-0">
-        {t('ดูแชท', 'See the chat')}
+      <ButtonLink to={eventPath(session.id)} variant="secondary" size="sm" icon={<MessagesSquare size={16} strokeWidth={2.4} aria-hidden />} className={buttonClass}>
+        <span className={labelClass}>{t('ดูแชท', 'See the chat')}</span>
         <span className="sr-only">{t(` ${session.title}`, `: ${session.title}`)}</span>
       </ButtonLink>
     )
@@ -124,8 +128,8 @@ function ActionFor({
 }
 
 /**
- * One event. `card` (lists, home): room, title, time, countdown, who's going and the button.
- * `compact` (pinned in a room, "รอบหน้า"): one row. `eyebrow` replaces the small line above the title.
+ * One event. `card`: full details and attendee avatars.
+ * `compact`: a shorter row for home and pinned events. `eyebrow` replaces the room name.
  */
 export function EventCard({
   session,
@@ -154,7 +158,8 @@ export function EventCard({
   const muted = phase === 'cancelled' || phase === 'closed'
   const when = `${eventWhenLabel(session.startsAt, now)} · ${durationLabel(session.durationMin)}`
   const href = useEventHref()(session, now)
-  const action = <ActionFor session={session} phase={phase} now={now} going={going} onRsvp={() => rsvp.toggle(session)} href={href} />
+  const homeRow = variant === 'compact' && showRoom
+  const action = <ActionFor session={session} phase={phase} now={now} going={going} onRsvp={() => rsvp.toggle(session)} href={href} compact={homeRow} />
   const title = (
     <Link to={href} className={stretched}>
       {session.title}
@@ -164,7 +169,7 @@ export function EventCard({
   if (variant === 'compact') {
     return (
       <article
-        className={`relative isolate flex flex-wrap items-center gap-x-3 gap-y-2 overflow-hidden rounded-[1.75rem] border bg-white p-3 pl-3.5 shadow-[var(--shadow-soft)] ${focusRing}`}
+        className={`relative isolate flex items-center gap-x-3 gap-y-2 overflow-hidden rounded-[1.75rem] border bg-white p-3 pl-3.5 shadow-[var(--shadow-soft)] ${homeRow ? 'min-h-24' : 'flex-wrap'} ${focusRing}`}
         style={{ borderColor: p.base }}
       >
         <span aria-hidden className="pointer-events-none absolute -top-12 -left-10 -z-10 size-32 rounded-full opacity-60 blur-2xl" style={{ background: p.base }} />
@@ -173,16 +178,30 @@ export function EventCard({
           className="relative flex size-11 shrink-0 items-center justify-center rounded-2xl"
           style={{ background: phase === 'open' ? MOCHI.mint.base : p.light, color: phase === 'open' ? MOCHI.mint.ink : p.ink }}
         >
-          {phase === 'open' ? <Radio size={21} strokeWidth={2.4} /> : <CalendarClock size={21} strokeWidth={2.4} />}
+          {showRoom && room ? (
+            <RoomIcon room={room} size={44} />
+          ) : phase === 'open' ? (
+            <Radio size={21} strokeWidth={2.4} />
+          ) : (
+            <CalendarClock size={21} strokeWidth={2.4} />
+          )}
           {phase === 'open' && <OpenDot className="absolute -top-0.5 -right-0.5" />}
         </span>
-        <div className="min-w-0 flex-[1_1_10rem]">
-          {eyebrow && <p className="text-xs font-semibold text-ink-soft">{eyebrow}</p>}
-          <h3 className="line-clamp-2 font-display text-[15px] leading-snug font-semibold [overflow-wrap:anywhere] text-ink">{title}</h3>
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-soft">
-            <PhaseBadge session={session} now={now} />
-            {phase === 'upcoming' && <span>{eventWhenLabel(session.startsAt, now)}</span>}
-            {count > 0 && <span>{countLine(count, phase)}</span>}
+        <div className={`min-w-0 ${homeRow ? 'flex-1' : 'flex-[1_1_10rem]'}`}>
+          {eyebrow ? (
+            <p className="text-xs font-semibold text-ink-soft">{eyebrow}</p>
+          ) : (
+            homeRow && (
+              <p className="truncate text-xs text-ink-soft">
+                {room && `${room.name} · `}{when}
+              </p>
+            )
+          )}
+          <h3 className={`font-display text-[15px] font-semibold [overflow-wrap:anywhere] text-ink ${homeRow ? 'line-clamp-1 leading-tight' : 'line-clamp-2 leading-snug'}`}>{title}</h3>
+          <p className={`mt-1 flex items-center gap-x-2 gap-y-1 text-xs text-ink-soft ${homeRow ? '' : 'flex-wrap'}`}>
+            <PhaseBadge session={session} now={now} className={homeRow ? 'min-w-0 [&>span:last-child]:truncate' : undefined} />
+            {!homeRow && phase === 'upcoming' && <span>{eventWhenLabel(session.startsAt, now)}</span>}
+            {count > 0 && <span className={homeRow ? 'shrink-0' : undefined}>{countLine(count, phase)}</span>}
           </p>
         </div>
         {action && <span className="ml-auto flex shrink-0">{action}</span>}

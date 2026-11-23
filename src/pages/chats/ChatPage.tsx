@@ -81,6 +81,7 @@ function ChatRoom({ chatId, them, match }: { chatId: string; them: User; match: 
 
   const messages = chat?.messages ?? []
   const phase = chat ? chatPhase(chat) : 'open'
+  const closed = !!chat?.closedAt
   // intro chats: Mochi's intro card and the question pair sit under Mochi's own lines
   const pair = usePairQuestion(chatId)
   const realChatId = chat?.id ?? chatId
@@ -90,9 +91,9 @@ function ChatRoom({ chatId, them, match }: { chatId: string; them: User; match: 
       step === 'intro' ? (
         <MochiIntroCard them={them} isNew={isNew} />
       ) : step === 'ask' ? (
-        <PairCard chatId={realChatId} them={them} meColor={meColor} isNew={isNew} />
+        <PairCard chatId={realChatId} them={them} meColor={meColor} isNew={isNew} readOnly={closed} />
       ) : null,
-    [them, realChatId, meColor],
+    [them, realChatId, meColor, closed],
   )
   const waiting = phase === 'ringing'
   // demo chats (and live chats with sample people, which never reach the server) answer by themselves
@@ -227,7 +228,7 @@ function ChatRoom({ chatId, them, match }: { chatId: string; them: User; match: 
 
   const sendPicked = () => {
     const image = picked
-    if (!image || sent.current === image) return
+    if (!image || sent.current === image || phase !== 'open') return
     sent.current = image
     if (!unlocked) {
       notify(t('ตอนนี้ส่งรูปไม่ได้แล้ว ต้องกดยินยอมทั้งคู่ก่อนนะ', 'Photos are locked now: you both need to agree first'))
@@ -299,7 +300,7 @@ function ChatRoom({ chatId, them, match }: { chatId: string; them: User; match: 
             them={them}
             meColor={meColor}
             sames={sames}
-            onSame={toggleSame}
+            onSame={closed ? undefined : toggleSame}
             initialIds={initialIds}
             isMine={isMine}
             logRef={log}
@@ -315,7 +316,7 @@ function ChatRoom({ chatId, them, match }: { chatId: string; them: User; match: 
       ) : phase === 'incoming' ? (
         <IncomingActions name={them.name} onAccept={() => answer(true)} onDecline={() => answer(false)} />
       ) : phase === 'ended' ? (
-        <EndedNote name={them.name} />
+        <EndedNote name={them.name} closedForBoth={closed} />
       ) : (
         <Composer
           value={draft}
@@ -332,7 +333,7 @@ function ChatRoom({ chatId, them, match }: { chatId: string; them: User; match: 
         />
       )}
 
-      <SendImageSheet image={picked} name={them.name} onSend={sendPicked} onClose={() => setPicked(null)} />
+      <SendImageSheet image={closed ? null : picked} name={them.name} onSend={sendPicked} onClose={() => setPicked(null)} />
       <ImageViewer
         view={view}
         message={viewed}

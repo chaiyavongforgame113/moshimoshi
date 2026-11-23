@@ -92,6 +92,7 @@ export interface MoshiState {
   sendMoshi: (userId: string, opener: string) => string
   /** answer a moshi someone sent me (live only; demo chats have no status) */
   respondMoshi: (chatId: string, accept: boolean) => void
+  closeChat: (chatId: string) => Promise<boolean>
   sendChatMessage: (chatId: string, text: string) => void
   sendRoomMessage: (roomId: string, text: string) => void
   /** prototype: a message from someone else (or a system line) lands in a chat */
@@ -324,6 +325,7 @@ export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
       { id: uid('m'), userId: 'system', text: MOCHI_LINES.ask, at: now(), kind: 'mochi' },
     ]
     const existing = get().chats.find((c) => c.withUserId === intro.withUserId)
+    if (existing?.closedAt) return undefined
     const chat: Chat = existing
       ? { ...existing, kind: 'intro', pairQuestion: question, unread: existing.unread + lines.length, messages: [...existing.messages, ...lines] }
       : { id: uid('c'), withUserId: intro.withUserId, kind: 'intro', pairQuestion: question, unread: intro.direction === 'outgoing' ? lines.length : 0, messages: lines }
@@ -341,7 +343,16 @@ export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
   }
 
   return {
-    completeOnboarding: (patch) => set((s) => ({ onboarded: true, me: { ...s.me, ...patch, id: s.me.id } })),
+    completeOnboarding: (patch) =>
+      set((s) => {
+        const starters = DEMO_ME.prompts
+        const prompted = s.me.prompts
+        const hasOnlyExamples = !s.onboarded && prompted.length === starters.length && prompted.every(
+          (answer, i) => answer.promptId === starters[i].promptId && answer.text === starters[i].text && answer.question === starters[i].question,
+        )
+        const prompts = hasOnlyExamples ? [] : prompted
+        return { onboarded: true, me: { ...s.me, prompts, ...patch, id: s.me.id } }
+      }),
     updateMe: (patch) => set((s) => ({ me: { ...s.me, ...patch, id: s.me.id } })),
     resetDemo: () => set({ ...DEMO_DATA }),
     joinRoom: (roomId) => set((s) => (s.me.rooms.includes(roomId) ? s : { me: { ...s.me, rooms: [...s.me.rooms, roomId] } })),
@@ -381,11 +392,19 @@ export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
       return chat.id
     },
     respondMoshi: () => {},
+    closeChat: (chatId) => {
+      const chat = get().chats.find((c) => c.id === chatId)
+      if (!chat || chat.status === 'pending' || (chat.status === 'ended' && !chat.closedAt)) return Promise.resolve(false)
+      if (chat.closedAt) return Promise.resolve(true)
+      const closedAt = new Date().toISOString()
+      set((s) => ({ chats: s.chats.map((c) => (c.id === chatId ? { ...c, status: 'ended', closedAt } : c)) }))
+      return Promise.resolve(true)
+    },
     // my messages carry localId like live ones do (here it never changes)
     sendChatMessage: (chatId, text) => {
       const id = uid('m')
       set((s) => ({
-        chats: s.chats.map((c) => (c.id === chatId ? { ...c, messages: [...c.messages, { id, localId: id, userId: s.me.id, text, at: now() }] } : c)),
+        chats: s.chats.map((c) => (c.id === chatId && !c.closedAt ? { ...c, messages: [...c.messages, { id, localId: id, userId: s.me.id, text, at: now() }] } : c)),
       }))
     },
     sendRoomMessage: (roomId, text) =>
@@ -398,7 +417,7 @@ export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
     receiveChatMessage: (chatId, userId, text, kind) =>
       set((s) => ({
         chats: s.chats.map((c) =>
-          c.id === chatId ? { ...c, messages: [...c.messages, { id: uid('m'), userId, text, at: now(), kind }] } : c,
+          c.id === chatId && !c.closedAt ? { ...c, messages: [...c.messages, { id: uid('m'), userId, text, at: now(), kind }] } : c,
         ),
       })),
     markChatRead: (chatId) =>
@@ -414,6 +433,7 @@ export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
     // demo photos stay on this device: an object URL, gone after a reload (the bubble then says it
     // can't be opened, and the photo can still be deleted from the viewer)
     sendChatImage: (chatId, image) => {
+      if (!get().chats.some((c) => c.id === chatId && !c.closedAt)) return
       const id = uid('m')
       keepLocalUrl(image.url)
       set((s) => ({
@@ -442,7 +462,7 @@ export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
     reactToChatMessage: (chatId, messageId, userId) =>
       set((s) => ({
         chats: s.chats.map((c) =>
-          c.id === chatId
+          c.id === chatId && !c.closedAt
             ? {
                 ...c,
                 messages: c.messages.map((m) =>
@@ -522,7 +542,7 @@ export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
     blockUser: (userId) =>
       set((s) => ({
         blocked: s.blocked.includes(userId) ? s.blocked : [...s.blocked, userId],
-        chats: s.chats.filter((c) => c.withUserId !== userId),
+        chats: s.chats.filter((c) => c.withUserId !== userId || c.closedAt),
       })),
     // demo: their profile and posts show again (chats that went with the block stay gone)
     unblockUser: (userId) => set((s) => (s.blocked.includes(userId) ? { blocked: s.blocked.filter((x) => x !== userId) } : s)),
@@ -580,7 +600,7 @@ export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
     answerPair: (chatId, questionId, text) => {
       const body = text.trim().slice(0, PAIR_ANSWER_MAX)
       const chat = get().chats.find((c) => c.id === chatId)
-      if (!body || !chat || chat.pairQuestion !== questionId) return Promise.resolve(false)
+      if (!body || !chat || chat.closedAt || chat.pairQuestion !== questionId) return Promise.resolve(false)
       const me = get().me.id
       const list = get().pairAnswers[chatId] ?? []
       if (list.some((a) => a.userId === me && a.questionId === questionId)) return Promise.resolve(true)
@@ -589,6 +609,7 @@ export function demoActions(set: MoshiSet, get: MoshiGet): MoshiActions {
       // the simulated person answers a little later, then Mochi steps back
       window.setTimeout(() => {
         const st = get()
+        if (!st.chats.some((c) => c.id === chatId && !c.closedAt)) return
         const answers = st.pairAnswers[chatId] ?? []
         if (answers.some((a) => a.userId === chat.withUserId && a.questionId === questionId)) return
         const theirs: PairAnswer = { chatId, userId: chat.withUserId, questionId, text: demoPairAnswer(questionId), at: new Date().toISOString() }

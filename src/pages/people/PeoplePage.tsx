@@ -1,6 +1,6 @@
 import { motion, useReducedMotion } from 'motion/react'
-import { CircleHelp, Megaphone, Plus, Radio, UsersRound, Wifi } from 'lucide-react'
-import { useCallback, useId, useMemo, useState, type ReactNode } from 'react'
+import { CircleHelp, Megaphone, Plus, Radio, Sun, UsersRound, Wifi } from 'lucide-react'
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { KineticText } from '@/components/motion'
 import { Avatar, Button, ButtonLink, Chip, IconButton, PageHeader, ShowMore, Tabs, tabId, tabPanelId, Zone, zoneAction, type MochiFace, type TabItem } from '@/components/ui'
@@ -15,16 +15,20 @@ import { InviteCard } from './InviteCard'
 import { PersonRow } from './PersonRow'
 import { SignalInfoSheet } from './SignalScale'
 import { ListSkeleton } from './Skeleton'
-import { TodaysWave } from './TodaysWave'
-
 type TabKey = 'wave' | 'invites'
-
-/** ?tab=invites opens the board; anything else is the wavelength tab. */
-const tabOf = (value: string | null): TabKey => (value === 'invites' ? 'invites' : 'wave')
 
 export default function PeoplePage() {
   const [params, setParams] = useSearchParams()
-  const tab = tabOf(params.get('tab'))
+  const requestedTab = params.get('tab')
+  const tab = requestedTab === 'invites' ? 'invites' : 'wave'
+  useEffect(() => {
+    if (requestedTab !== 'intros') return
+    setParams((p) => {
+      p.delete('tab')
+      return p
+    }, { replace: true, preventScrollReset: true })
+  }, [requestedTab, setParams])
+
   const idBase = `people${useId().replace(/:/g, '')}`
   const [infoOpen, setInfoOpen] = useState(false)
   const closeInfo = useCallback(() => setInfoOpen(false), [])
@@ -143,7 +147,17 @@ function WaveTab() {
 
   return (
     <>
-      {daily && dailyUser && <TodaysWave match={daily} user={dailyUser} myAge={myAge} />}
+      {daily && dailyUser && (
+        <Zone
+          tone={dailyUser.color}
+          icon={<Sun size={18} strokeWidth={2.4} />}
+          title={t('คลื่นของวันนี้', "Today's wave")}
+          note={t('โมชิเลือกให้วันละคน พรุ่งนี้มีคนใหม่', 'Mochi picks one person a day. Someone new tomorrow')}
+          className="mt-5"
+        >
+          <PersonRow match={daily} user={dailyUser} myAge={myAge} />
+        </Zone>
+      )}
 
       {rest.length > 0 && (
         <Zone
@@ -206,8 +220,8 @@ function InvitesTab() {
           "Why not start one? Say what you'd like to do, and people on your wavelength will see it first.",
         )}
         action={
-          <ButtonLink to="/app/post" icon={<Plus size={18} strokeWidth={2.8} aria-hidden />}>
-            {t('ชวนเล่น', 'Invite people')}
+          <ButtonLink to="/app/people/invites/compose" icon={<Plus size={18} strokeWidth={2.8} aria-hidden />}>
+            {t('ชวนเล่น', 'Invite to play')}
           </ButtonLink>
         }
       />
@@ -220,9 +234,9 @@ function InvitesTab() {
       title={t('คำชวนที่น่าไปด้วย', 'Invites for you')}
       note={t('จากคนที่ถูกคอกับเรา เรื่องที่เราชอบขึ้นก่อน กด "ฉันด้วย" แล้วเจ้าของโพสต์จะเห็น', 'From people who click with you, things you like first. Tap "Me too!" and the poster will see it')}
       action={
-        <Link to="/app/post" className={zoneAction} aria-label={t('ชวนเล่นเอง', 'Post your own invite')}>
+        <Link to="/app/people/invites/compose" className={zoneAction}>
           <Plus size={16} strokeWidth={2.6} aria-hidden />
-          <span className="max-sm:sr-only">{t('ชวนเอง', 'Post one')}</span>
+          <span>{t('ชวนเล่น', 'Invite to play')}</span>
         </Link>
       }
       className="mt-5"

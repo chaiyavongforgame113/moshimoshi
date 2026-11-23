@@ -1,19 +1,19 @@
 import { motion } from 'motion/react'
-import { HeartHandshake, MessageCircleHeart, MessagesSquare, Radio, Send, Sparkles } from 'lucide-react'
+import { MessageCircleHeart, Radio, Send, Star } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router'
 import { KineticText, Reveal } from '@/components/motion'
 import { Avatar, ButtonLink, PageHeader, Section, ShowMore, SignalMeter } from '@/components/ui'
-import { useChats, useDataReady, useIntroRequests, useMatches, usePeople } from '@/data/hooks'
+import { useChats, useDataReady, useMatches, useMyId, usePeople } from '@/data/hooks'
 import { MOCHI } from '@/lib/colors'
 import { known, t } from '@/lib/i18n'
-import { useNow } from '@/lib/hooks'
 import { fadeUp, spring } from '@/lib/motion'
+import { useProgress } from '@/lib/progress'
 import type { Chat, MatchResult, User } from '@/lib/types'
 import { useIsMine } from '@/pages/people/lib'
 import { Rings } from '@/pages/people/profile/Rings'
 import { ListSkeleton } from '@/pages/people/Skeleton'
-import { FindMoreLink, IncomingIntroCard, OutgoingIntroRow } from './intro/IncomingIntro'
+import { ChatOptions } from './ChatOptions'
 import { chatPhase, lastMessage, previewText, setAside } from './lib'
 
 const MotionLink = motion.create(Link)
@@ -22,8 +22,6 @@ const MotionLink = motion.create(Link)
 const FIRST_HELLOS = 3
 /** chat rows shown before "ดูเพิ่ม" (more when an unread chat sits further down) */
 const FIRST_CHATS = 6
-/** an intro of mine that ran out stays in the list (with its kind note) this long */
-const EXPIRED_SHOWN_MS = 3 * 86_400_000
 
 interface Row {
   chat: Chat
@@ -39,15 +37,10 @@ export default function ChatsPage() {
   const people = usePeople()
   const matches = useMatches()
   const isMine = useIsMine()
+  const userId = useMyId()
+  const { starredChats } = useProgress(userId)
+  const stars = useMemo(() => new Set(Array.isArray(starredChats) ? starredChats : []), [starredChats])
   const users = useMemo(() => new Map(people.map((u) => [u.id, u])), [people])
-  const intros = useIntroRequests()
-  const now = useNow(60_000)
-  // "โมชิอยากแนะนำ…" for people I can see; mine still waiting, or run out lately (never accepted ones: those are chats now)
-  const introsIn = intros.incoming.filter((i) => users.has(i.withUserId))
-  const introsOut = intros.outgoing.filter(
-    (i) => users.has(i.withUserId) && (i.status === 'pending' || (i.status === 'expired' && now - Date.parse(i.expiresAt) < EXPIRED_SHOWN_MS)),
-  )
-  const introsRanOut = introsOut.some((i) => i.status === 'expired')
 
   const { incoming, waiting, talking } = useMemo(() => {
     const byUser = new Map(matches.map((m) => [m.userId, m]))
@@ -58,11 +51,12 @@ export default function ChatsPage() {
     return {
       incoming: rows.filter((r) => chatPhase(r.chat) === 'incoming'),
       waiting: rows.filter((r) => chatPhase(r.chat) === 'ringing'),
-      talking: rows.filter((r) => ['open', 'ended'].includes(chatPhase(r.chat))),
+      talking: rows.filter((r) => ['open', 'ended'].includes(chatPhase(r.chat)))
+        .sort((a, b) => Number(stars.has(b.chat.id)) - Number(stars.has(a.chat.id))),
     }
-  }, [chats, users, matches, isMine])
+  }, [chats, users, matches, isMine, stars])
 
-  const total = incoming.length + waiting.length + talking.length + introsIn.length + introsOut.length
+  const total = incoming.length + waiting.length + talking.length
   // the chat list starts short, but never hides an unread chat behind "ดูเพิ่ม"
   const lastUnread = talking.reduce((at, r, i) => (r.chat.unread > 0 ? i : at), -1)
   const firstChats = Math.max(FIRST_CHATS, lastUnread + 1)
@@ -77,25 +71,6 @@ export default function ChatsPage() {
         <EmptyChats />
       ) : (
         <>
-          {introsIn.length > 0 && (
-            <Section
-              tone="butter"
-              icon={<Sparkles size={18} strokeWidth={2.4} />}
-              title={t('โมชิอยากแนะนำเพื่อนให้', 'Mochi has someone for you to meet')}
-              note={t('ยินดีรู้จักหรือไว้ก่อนก็ได้ ถ้าไว้ก่อน เขาจะไม่รู้นะ', "Say yes or maybe later. If it's later, they won't know")}
-            >
-              <ShowMore
-                items={introsIn}
-                initial={2}
-                getKey={(i) => i.id}
-                listClassName="grid gap-3 md:grid-cols-2"
-                itemClassName="min-w-0"
-                moreLabel={(n) => t(`ดูคำแนะนำเพิ่ม (อีก ${n})`, `Show more intros (${n} more)`)}
-                render={(i, n) => <IncomingIntroCard intro={i} primary={n === 0} />}
-              />
-            </Section>
-          )}
-
           {incoming.length > 0 && (
             <Section
               tone="mint"
@@ -118,19 +93,17 @@ export default function ChatsPage() {
           )}
 
           {talking.length > 0 && (
-            <Section tone="sky" icon={<MessagesSquare size={18} strokeWidth={2.4} />} title={t('คุยอยู่', 'Chatting')}>
-              <motion.div variants={fadeUp} initial="hidden" animate="show">
-                <ShowMore
-                  items={talking}
-                  initial={firstChats}
-                  step={FIRST_CHATS}
-                  getKey={(r) => r.chat.id}
-                  listClassName="card space-y-0.5 overflow-hidden rounded-3xl p-1.5"
-                  moreLabel={(n) => t(`ดูแชทเพิ่ม (อีก ${n})`, `Show more chats (${n} more)`)}
-                  render={(r) => <ChatRow row={r} isMine={isMine} />}
-                />
-              </motion.div>
-            </Section>
+            <motion.div variants={fadeUp} initial="hidden" animate="show" className="mt-5">
+              <ShowMore
+                items={talking}
+                initial={firstChats}
+                step={FIRST_CHATS}
+                getKey={(r) => r.chat.id}
+                listClassName="card space-y-0.5 overflow-hidden rounded-3xl p-1.5"
+                moreLabel={(n) => t(`ดูแชทเพิ่ม (อีก ${n})`, `Show more chats (${n} more)`)}
+                render={(r) => <ChatRow row={r} isMine={isMine} userId={userId} starred={stars.has(r.chat.id)} />}
+              />
+            </motion.div>
           )}
 
           {waiting.length > 0 && (
@@ -153,73 +126,55 @@ export default function ChatsPage() {
               </Section>
             </Reveal>
           )}
-
-          {introsOut.length > 0 && (
-            <Reveal>
-              <Section
-                tone="lavender"
-                icon={<HeartHandshake size={18} strokeWidth={2.4} />}
-                title={t('ให้โมชิแนะนำให้', 'Intros Mochi is making')}
-                note={t('โมชิไปถามเขาก่อน ถ้ายินดีรู้จัก แชทจะเปิดเอง', "Mochi asks them first. If they'd like to meet, the chat opens by itself")}
-              >
-                <ShowMore
-                  items={introsOut}
-                  initial={FIRST_HELLOS}
-                  getKey={(i) => i.id}
-                  listClassName="grid gap-2.5 sm:grid-cols-2"
-                  itemClassName="min-w-0"
-                  moreLabel={(n) => t(`ดูเพิ่ม (อีก ${n})`, `Show more (${n} more)`)}
-                  render={(i) => <OutgoingIntroRow intro={i} />}
-                />
-                {introsRanOut && <FindMoreLink />}
-              </Section>
-            </Reveal>
-          )}
         </>
       )}
     </div>
   )
 }
 
-function ChatRow({ row: { chat, user: u, match }, isMine }: { row: Row; isMine: IsMine }) {
+function ChatRow({ row: { chat, user: u, match }, isMine, userId, starred }: { row: Row; isMine: IsMine; userId: string; starred: boolean }) {
   const last = lastMessage(chat)
   const unread = chat.unread > 0
   const ended = chatPhase(chat) === 'ended'
   return (
-    <MotionLink
-      to={`/app/chats/${chat.id}`}
-      data-cursor={t('เปิดแชท', 'Open chat')}
-      whileTap={{ scale: 0.98 }}
-      transition={spring.bouncy}
-      className={`flex items-center gap-3 rounded-[1.4rem] p-3 transition-colors hover:bg-cream ${unread ? 'bg-butter/20' : ''}`}
-    >
-      <Avatar color={u.color} size={54} online={u.isOnline} face={ended ? 'sleepy' : unread ? 'talk' : 'smile'} />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span className="truncate font-display text-[17px] font-semibold">{u.name}</span>
-          {ended ? (
-            <span className="shrink-0 rounded-full bg-cream-3 px-2 py-0.5 text-[11px] font-semibold text-ink-soft">{t('ปิดแชทแล้ว', 'Closed')}</span>
-          ) : (
-            match && <SignalMeter level={match.level} size="xs" showLabel={false} />
-          )}
-          <span className="ml-auto shrink-0 text-xs text-ink-soft">{known(last?.at)}</span>
+    <div className={`flex items-center rounded-[1.4rem] pr-1 ${unread ? 'bg-butter/20' : ''}`}>
+      <MotionLink
+        to={`/app/chats/${chat.id}`}
+        data-cursor={t('เปิดแชท', 'Open chat')}
+        whileTap={{ scale: 0.98 }}
+        transition={spring.bouncy}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-[1.4rem] p-3 transition-colors hover:bg-cream"
+      >
+        <Avatar color={u.color} size={54} online={u.isOnline} face={ended ? 'sleepy' : unread ? 'talk' : 'smile'} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span className="truncate font-display text-[17px] font-semibold">{u.name}</span>
+            {starred && <Star size={14} fill="currentColor" className="shrink-0 text-ink" aria-label={t('ติดดาวแล้ว', 'Starred')} />}
+            {ended ? (
+              <span className="shrink-0 rounded-full bg-cream-3 px-2 py-0.5 text-[11px] font-semibold text-ink-soft">{t('ปิดแชทแล้ว', 'Closed')}</span>
+            ) : (
+              match && <SignalMeter level={match.level} size="xs" showLabel={false} />
+            )}
+            <span className="ml-auto shrink-0 text-xs text-ink-soft">{known(last?.at)}</span>
+          </span>
+          <span className="mt-0.5 flex items-center gap-2">
+            <span className={`truncate text-sm ${unread ? 'font-semibold text-ink' : 'text-ink-soft'}`}>{previewText(chat, isMine)}</span>
+            {unread && (
+              <motion.span
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={spring.bouncy}
+                className="ml-auto inline-flex h-5.5 min-w-5.5 shrink-0 items-center justify-center rounded-full bg-coral px-1.5 text-xs font-bold text-ink"
+              >
+                {chat.unread}
+                <span className="sr-only">{t(' ข้อความใหม่', chat.unread === 1 ? ' new message' : ' new messages')}</span>
+              </motion.span>
+            )}
+          </span>
         </span>
-        <span className="mt-0.5 flex items-center gap-2">
-          <span className={`truncate text-sm ${unread ? 'font-semibold text-ink' : 'text-ink-soft'}`}>{previewText(chat, isMine)}</span>
-          {unread && (
-            <motion.span
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={spring.bouncy}
-              className="ml-auto inline-flex h-5.5 min-w-5.5 shrink-0 items-center justify-center rounded-full bg-coral px-1.5 text-xs font-bold text-ink"
-            >
-              {chat.unread}
-              <span className="sr-only">{t(' ข้อความใหม่', chat.unread === 1 ? ' new message' : ' new messages')}</span>
-            </motion.span>
-          )}
-        </span>
-      </span>
-    </MotionLink>
+      </MotionLink>
+      <ChatOptions chat={chat} name={u.name} userId={userId} starred={starred} />
+    </div>
   )
 }
 

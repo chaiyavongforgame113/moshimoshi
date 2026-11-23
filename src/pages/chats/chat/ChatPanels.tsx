@@ -374,7 +374,7 @@ export function IncomingActions({ name, onAccept, onDecline }: { name: string; o
 }
 
 /** The chat is closed (ended, or the hello was never accepted): no composer, a gentle way onward. */
-export function EndedNote({ name }: { name: string }) {
+export function EndedNote({ name, closedForBoth = false }: { name: string; closedForBoth?: boolean }) {
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={spring.soft} className={dock}>
       <div className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-line bg-white/80 px-3.5 py-2.5">
@@ -384,7 +384,11 @@ export function EndedNote({ name }: { name: string }) {
         <p className="min-w-0 flex-[1_1_12rem] text-sm leading-relaxed">
           <b className="font-display font-semibold text-ink">{t(`แชทกับ${name}ปิดไปแล้ว`, `Your chat with ${name} has closed`)}</b>
           <br />
-          <span className="text-ink-soft">{t('ไม่เป็นไรเลยนะ ยังมีคนคลื่นเดียวกันรอคุยอยู่อีกเยอะ', "That's totally okay. Lots more people on your wavelength are waiting to chat")}</span>
+          <span className="text-ink-soft">
+            {closedForBoth
+              ? t('ทั้งสองคนยังอ่านประวัติได้ แต่ส่งข้อความเพิ่มไม่ได้', 'Both of you can read the history. Sending is disabled.')
+              : t('ไม่เป็นไรเลยนะ ยังมีคนคลื่นเดียวกันรอคุยอยู่อีกเยอะ', "That's totally okay. Lots more people on your wavelength are waiting to chat")}
+          </span>
         </p>
         <ButtonLink to="/app/people" variant="soft" size="sm" icon={<Radio size={15} aria-hidden />}>
           {t('หาคนคลื่นเดียวกัน', 'Find people on your wavelength')}

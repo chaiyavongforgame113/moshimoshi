@@ -344,6 +344,10 @@ export function liveActions(set: MoshiSet, get: MoshiGet, demo: MoshiActions): P
       if (isSample(userId) || !isServerId(userId)) return demo.sendMoshi(userId, opener)
       const me = myId()
       const existing = get().chats.find((c) => c.withUserId === userId) as LiveChat | undefined
+      if (existing?.closedAt) {
+        fail(null, writeError({ message: 'chat_closed' }))
+        return existing.id
+      }
       if (existing?.status === 'active') {
         get().sendChatMessage(existing.id, opener)
         return existing.id
@@ -380,7 +384,9 @@ export function liveActions(set: MoshiSet, get: MoshiGet, demo: MoshiActions): P
         .catch((err) => {
           // undo only this chat (other chats may have moved on meanwhile)
           set((s) => ({
-            chats: existing ? s.chats.map((c) => (c.id === id ? existing : c)) : s.chats.filter((c) => c.id !== id),
+            chats: existing
+              ? s.chats.map((c) => (c.id !== id ? c : c.closedAt ? { ...c, messages: c.messages.filter((m) => m.id !== fid) } : existing))
+              : s.chats.filter((c) => c.id !== id),
             sentMoshi: hadSent ? s.sentMoshi : s.sentMoshi.filter((x) => x !== userId),
           }))
           fail(err)
@@ -390,21 +396,39 @@ export function liveActions(set: MoshiSet, get: MoshiGet, demo: MoshiActions): P
 
     respondMoshi: (chatId, accept) => {
       const chat = findChat(chatId)
-      if (!chat || !isServerId(chat.id)) return
+      if (!chat || chat.closedAt || !isServerId(chat.id)) return
       const prev = chat.status
       const status = accept ? 'active' : 'ended'
       patchChat(chat.id, (c) => ({ ...c, status }))
       w.respondMoshi(chat.id, accept)
         .then(() => emitChange({ table: 'chats', type: 'UPDATE', row: { id: chat.id, status } as ChatRow }))
         .catch((err) => {
-          patchChat(chat.id, (c) => ({ ...c, status: prev }))
+          patchChat(chat.id, (c) => (c.closedAt ? c : { ...c, status: prev }))
           fail(err)
         })
     },
 
+    closeChat: async (chatId) => {
+      const chat = findChat(chatId)
+      if (!chat) return false
+      if (isSample(chat.withUserId) || !isServerId(chat.id)) return demo.closeChat(chat.id)
+      if (chat.closedAt) return true
+      const owner = get().me.id
+      try {
+        const closedAt = await w.closeChat(chat.id)
+        if (get().me.id !== owner) return true
+        patchChat(chat.id, (c) => ({ ...c, status: 'ended', closedAt }))
+        emitChange({ table: 'chats', type: 'UPDATE', row: { id: chat.id, status: 'ended', closed_at: closedAt } as ChatRow })
+        return true
+      } catch (err) {
+        fail(err)
+        return false
+      }
+    },
+
     sendChatMessage: (chatId, text) => {
       const chat = findChat(chatId)
-      if (!chat) return
+      if (!chat || chat.closedAt) return
       if (isSample(chat.withUserId) || !isServerId(chat.id)) return demo.sendChatMessage(chat.id, text)
       const me = myId()
       const mid = tmpId()
@@ -480,7 +504,7 @@ export function liveActions(set: MoshiSet, get: MoshiGet, demo: MoshiActions): P
 
     sendChatImage: (chatId, image) => {
       const chat = findChat(chatId)
-      if (!chat) return
+      if (!chat || chat.closedAt) return
       if (isSample(chat.withUserId) || !isServerId(chat.id)) return demo.sendChatImage(chat.id, image)
       const me = myId()
       const mid = tmpId()
@@ -880,7 +904,7 @@ export function liveActions(set: MoshiSet, get: MoshiGet, demo: MoshiActions): P
 
     answerPair: async (chatId, questionId, text) => {
       const chat = findChat(chatId)
-      if (!chat) return false
+      if (!chat || chat.closedAt) return false
       if (isSample(chat.withUserId) || !isServerId(chat.id)) return demo.answerPair(chat.id, questionId, text)
       if (!features.intros) {
         get().notify(tx(SOON))

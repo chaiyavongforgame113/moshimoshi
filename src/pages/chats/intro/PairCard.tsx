@@ -14,7 +14,7 @@ import type { MochiColor, User } from '@/lib/types'
  * "คำถามคู่": Mochi asks us both the same question. Mine goes in privately; theirs stays locked
  * until both have answered (the server holds it back), then opens with a little flip.
  */
-export function PairCard({ chatId, them, meColor, isNew = false }: { chatId: string; them: User; meColor: MochiColor; isNew?: boolean }) {
+export function PairCard({ chatId, them, meColor, isNew = false, readOnly = false }: { chatId: string; them: User; meColor: MochiColor; isNew?: boolean; readOnly?: boolean }) {
   const reduce = useReducedMotion()
   const pair = usePairQuestion(chatId)
   const answerPair = useMoshi((s) => s.answerPair)
@@ -26,7 +26,7 @@ export function PairCard({ chatId, them, meColor, isNew = false }: { chatId: str
 
   const body = draft.trim()
   const submit = async () => {
-    if (!body || busy) return
+    if (!body || busy || readOnly) return
     setBusy(true)
     const ok = await answerPair(chatId, q.id, body)
     setBusy(false)
@@ -62,6 +62,8 @@ export function PairCard({ chatId, them, meColor, isNew = false }: { chatId: str
           <SlotLabel color={meColor} text={t('คำตอบของเธอ', 'Your answer')} />
           {pair.mine ? (
             <p className="mt-1.5 text-[15px] leading-relaxed break-words whitespace-pre-wrap text-ink">{pair.mine.text}</p>
+          ) : readOnly ? (
+            <p className="mt-1.5 text-sm text-ink-soft">{t('แชทปิดแล้ว', 'Chat closed')}</p>
           ) : (
             <form
               className="mt-1.5"

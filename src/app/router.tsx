@@ -95,6 +95,11 @@ function LandingOrApp() {
   return standalone ? <Navigate to="/app" replace /> : page(<LandingPage />)
 }
 
+function LegacyInviteRoute() {
+  const { search, hash } = useLocation()
+  return <Navigate to={{ pathname: '/app/people/invites/compose', search, hash }} replace />
+}
+
 export const router = createBrowserRouter([
   {
     element: <Root />,
@@ -124,10 +129,11 @@ export const router = createBrowserRouter([
         ),
         children: [
           { index: true, element: page(<HomePage />) },
-          { path: 'post', element: page(<PostIntentPage />) },
+          { path: 'post', element: <LegacyInviteRoute /> },
           { path: 'rooms', element: page(<RoomsPage />) },
           { path: 'rooms/:roomId', element: page(<RoomPage />) },
           { path: 'people', element: page(<PeoplePage />) },
+          { path: 'people/invites/compose', element: page(<PostIntentPage />) },
           { path: 'people/:userId', element: page(<ProfilePage />) },
           { path: 'chats', element: page(<ChatsPage />) },
           { path: 'chats/:chatId', element: page(<ChatPage />) },

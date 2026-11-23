@@ -5,7 +5,9 @@ import { KineticText, Reveal } from '@/components/motion'
 import { IconButton, PageHeader } from '@/components/ui'
 import { useDataMode, useDataReady, useServerFeatures } from '@/data/hooks'
 import { t } from '@/lib/i18n'
+import { useMoshi } from '@/lib/store'
 import { WaveCardEntry } from '@/pages/compare/WaveCardEntry'
+import { AboutBlock } from '@/pages/people/profile/ProfileSections'
 import { PageSkeleton } from '@/pages/people/Skeleton'
 import { Account } from './Account'
 import { EditSheets, type EditKind } from './EditSheets'
@@ -41,6 +43,7 @@ export default function MePage() {
   // a shared card's link opens signed out only once wave_card_preview is on the server
   const waveCards = useServerFeatures().waveCard
   const ready = useDataReady()
+  const me = useMoshi((s) => s.me)
   if (!ready) return <PageSkeleton label={t('กำลังโหลดโปรไฟล์ของเรา…', 'Loading your profile…')} />
   return (
     <div>
@@ -53,27 +56,27 @@ export default function MePage() {
           </IconButton>
         }
       />
+      <AboutBlock user={me} edits={{ style: () => open('style'), online: () => open('online') }} />
       <MeHero onEdit={open} />
+      <Reveal>
+        <MyTags onEdit={() => open('tags')} />
+      </Reveal>
+      <Reveal>
+        <MyRooms />
+      </Reveal>
+      <Reveal>
+        <MyPrompts onEdit={() => open('stories')} />
+      </Reveal>
       <Reveal>
         <WaveClarity onEdit={open} />
       </Reveal>
-      {/* "บัตรคลื่นของฉัน": my wave archetype, shared as an image + a link friends open to compare waves */}
       {waveCards && (
         <Reveal>
           <WaveCardEntry />
         </Reveal>
       )}
       <Reveal>
-        <MyTags onEdit={() => open('tags')} />
-      </Reveal>
-      <Reveal>
-        <MyPrompts onEdit={() => open('stories')} />
-      </Reveal>
-      <Reveal>
         <MyIntents />
-      </Reveal>
-      <Reveal>
-        <MyRooms />
       </Reveal>
       <Reveal>
         <Settings />

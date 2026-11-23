@@ -1,5 +1,5 @@
 // "ช่วงชีวิต" (life stages): where someone is in life right now, e.g. just moved to the city, a
-// first job, night shifts. Up to 3 per person, shown on the profile and a strong wave signal
+// first job, night shifts. Shown on the profile and a strong wave signal
 // ("ช่วงชีวิตเดียวกัน") when two people share one.
 //
 // Values are stored in Thai (profiles.life_stages): the `value` of an option below, or text the
@@ -9,7 +9,7 @@
 import { known, L, tx, type Txt } from '@/lib/i18n'
 
 /** at most this many per person (the database checks the same) */
-export const LIFE_STAGE_MAX = 3
+export const LIFE_STAGE_MAX = 6
 /** one stage's length, own text included (the database checks the same) */
 export const LIFE_STAGE_TEXT_MAX = 40
 
@@ -59,7 +59,7 @@ export const lifeStageEmoji = (value: string): string => BY_VALUE.get(value)?.em
 const keyOf = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('th')
 
 /**
- * What the database accepts: trimmed, 1–40 characters, no repeats, at most 3 (the first ones
+ * What the database accepts: trimmed, 1–40 characters, no repeats, up to LIFE_STAGE_MAX (the first ones
  * win). Use it before setLifeStages (the store action does it too).
  */
 export function normalizeLifeStages(list: readonly string[] | undefined): string[] {

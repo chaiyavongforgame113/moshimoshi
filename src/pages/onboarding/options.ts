@@ -39,12 +39,13 @@ const SCREEN_LABELS: ScreenLabel[] = [
   loc<ScreenLabel>({ key: 'online', label: L('ออนไลน์ช่วงไหน', 'Online times') }),
   loc<ScreenLabel>({ key: 'style', label: L('สไตล์การคุย', 'Chat style') }),
   loc<ScreenLabel>({ key: 'story', label: L('เรื่องเล่า', 'A little story') }),
-  loc<ScreenLabel>({ key: 'rooms', label: L('ห้องแชท', 'Chat rooms') }),
-  loc<ScreenLabel>({ key: 'done', label: L('พร้อมแล้ว', 'All set') }),
+  loc<ScreenLabel>({ key: 'done', label: L('คลื่นเดียวกัน', 'Wavelength') }),
 ]
 
 /** The short name of a screen for the header (follows the current language). */
 export const screenLabel = (key: ScreenKey) => SCREEN_LABELS.find((s) => s.key === key)?.label ?? ''
+
+export const storyQuestion = () => t('มีอะไรสักอย่างที่อยากให้คนอื่นรู้เกี่ยวกับตัวเธอบ้าง?', 'What’s one thing you’d like others to know about you?')
 
 /** id → label, read from the options on every access (so it follows the current language). */
 function labelsOf<K extends string>(options: { id: K; label: string }[]): Readonly<Record<K, string>> {
@@ -257,16 +258,9 @@ export function mascotLine(screen: ScreenKey, d: Draft): MascotLine {
       }
     case 'story':
       return {
-        line: t('เล่าเรื่องตัวเองให้ฟังสักข้อสิ', 'Tell me one little thing about you'),
-        sub: t('ข้อเดียวพอ อยากเล่าเพิ่มไปเติมในโปรไฟล์ได้', 'One is plenty. You can add more on your profile'),
+        line: storyQuestion(),
+        sub: t('คำตอบนี้จะแสดงบนโปรไฟล์ แล้วค่อยเพิ่มเรื่องเล่าอื่นๆ ได้ทีหลัง', 'This will be your profile intro. You can add more stories later.'),
         face: 'smile',
-      }
-    case 'rooms':
-      // rooms are group chats to hop into, not a setting to pick
-      return {
-        line: t('เข้าห้องแชทไหนดี?', 'Which chat rooms will you join?'),
-        sub: t('แชทกลุ่มตามเรื่องที่ชอบ เข้าไปทักกันเลย', 'Group chats by topic. Hop in and say hi'),
-        face: 'happy',
       }
     default:
       return {
@@ -287,7 +281,7 @@ const LIFE_REACTION: Record<string, () => string> = {
 }
 
 /** The screens น้องโมชิ answers picks on (mascotReaction below); the rest never reply. */
-export const reactsOn = (screen: ScreenKey) => screen !== 'rules' && screen !== 'rooms' && screen !== 'done'
+export const reactsOn = (screen: ScreenKey) => screen !== 'rules' && screen !== 'done'
 
 /** A follow-up chat bubble that reacts to what the visitor just did. Kept to two lines of the bubble. */
 export function mascotReaction(screen: ScreenKey, d: Draft, ctx: { settledName: string; settledStory: string; lookChanged: boolean }): string | null {
@@ -333,7 +327,6 @@ export function mascotReaction(screen: ScreenKey, d: Draft, ctx: { settledName: 
       if (!n) return null
       return n < STORY_MIN ? t('ค่อยๆ พิมพ์ได้เลย ไม่ต้องรีบนะ', 'Take your time, no rush') : t('อ่านแล้วอยากคุยด้วยเลย!', 'Reading that makes me want to chat!')
     }
-    // rooms: no reaction, the helper ("rooms are group chats") stays put and the cards show what's joined
     default:
       return null
   }

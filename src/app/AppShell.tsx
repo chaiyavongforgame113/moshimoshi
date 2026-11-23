@@ -1,9 +1,9 @@
 import { motion } from 'motion/react'
-import { ChevronRight, DoorOpen, Download, MessageCircle, MoonStar, Plus, Radio, type LucideIcon } from 'lucide-react'
+import { ChevronRight, DoorOpen, Download, MessageCircle, MoonStar, Radio, type LucideIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, Navigate, NavLink, useLocation, useOutlet } from 'react-router'
-import { JellyRipple, Magnetic, RouteTransition } from '@/components/motion'
-import { Avatar, ButtonLink, RoomIcon } from '@/components/ui'
+import { RouteTransition } from '@/components/motion'
+import { Avatar, RoomIcon } from '@/components/ui'
 import { useChats, useDataMode, useDataReady, useEvents, useRooms } from '@/data/hooks'
 import { eventPhase, formatCountdown } from '@/lib/events'
 import { useInstallPrompt, useIsDesktop, useMediaQuery } from '@/lib/hooks'
@@ -25,7 +25,7 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  loc<NavItem>({ to: '/app', label: L('คืนนี้', 'Tonight'), Icon: MoonStar, end: true }),
+  loc<NavItem>({ to: '/app', label: L('โมชิของเรา', 'My Moshi'), Icon: MoonStar, end: true }),
   loc<NavItem>({ to: '/app/rooms', label: L('ห้อง', 'Rooms'), Icon: DoorOpen }),
   loc<NavItem>({ to: '/app/people', label: L('คนคลื่นเดียวกัน', 'Same wavelength'), short: L('คลื่นเดียวกัน', 'Wavelength'), Icon: Radio }),
   loc<NavItem>({ to: '/app/chats', label: L('แชท', 'Chats'), Icon: MessageCircle }),
@@ -104,32 +104,10 @@ export function AppShell() {
 // ------------------------------------------------------------------ mobile
 function BottomNav() {
   const unread = useUnread()
-  const items = [NAV[0], NAV[1]]
-  const right = [NAV[2], NAV[3]]
   return (
     <nav aria-label={t('เมนูหลัก', 'Main menu')} className="safe-bottom fixed inset-x-0 bottom-0 z-40 px-3">
-      <div className="glass relative mx-auto flex max-w-md items-center justify-between rounded-[1.75rem] px-2 py-1.5">
-        {items.map((n) => (
-          <TabLink key={n.to} item={n} />
-        ))}
-        <Link
-          to="/app/post"
-          aria-label={t('ชวนเล่น ชวนคนมาทำอะไรด้วยกัน', 'Invite people to do something together')}
-          className="relative -mt-8 flex flex-col items-center rounded-full"
-        >
-          <Magnetic max={8}>
-            <motion.span
-              whileTap={{ scaleX: 1.1, scaleY: 0.84 }}
-              transition={{ type: 'spring', stiffness: 520, damping: 11, mass: 0.6 }}
-              className="relative flex size-16 items-center justify-center rounded-full bg-coral text-ink shadow-[var(--shadow-puffy)] ring-4 ring-cream"
-            >
-              <Plus size={30} strokeWidth={2.8} />
-              <JellyRipple />
-            </motion.span>
-          </Magnetic>
-          <span className="mt-0.5 text-[11px] font-semibold whitespace-nowrap text-ink">{t('ชวนเล่น', 'Invite')}</span>
-        </Link>
-        {right.map((n) => (
+      <div className="glass relative mx-auto grid max-w-md grid-cols-4 items-center gap-1 rounded-[1.75rem] px-2 py-1.5">
+        {NAV.map((n) => (
           <TabLink key={n.to} item={n} badge={n.to === '/app/chats' ? unread : undefined} />
         ))}
       </div>
@@ -139,7 +117,7 @@ function BottomNav() {
 
 function TabLink({ item, badge }: { item: NavItem; badge?: number }) {
   return (
-    <NavLink to={item.to} end={item.end} className="relative flex min-w-12 flex-col items-center gap-0.5 rounded-2xl px-1 py-1 text-[11px] font-semibold min-[360px]:min-w-14 min-[360px]:px-2">
+    <NavLink to={item.to} end={item.end} className="relative flex min-w-0 flex-col items-center gap-0.5 rounded-2xl py-1 text-[11px] font-semibold">
       {({ isActive }) => (
         <>
           {isActive && <motion.span layoutId="tab-bg" className="absolute inset-0 rounded-2xl bg-butter/70" transition={spring.bouncy} />}
@@ -190,19 +168,6 @@ function Sidebar() {
           </NavLink>
         ))}
       </nav>
-      <Magnetic className="mt-5" max={6} strength={0.25}>
-        <ButtonLink
-          to="/app/post"
-          block
-          size="lg"
-          icon={<Plus size={20} strokeWidth={2.8} />}
-          aria-label={t('ชวนเล่น ชวนคนมาทำอะไรด้วยกัน', 'Invite people to do something together')}
-          data-cursor={t('ชวนคนมาเล่นด้วยกัน', 'Invite people')}
-        >
-          {t('ชวนเล่น', 'Invite')}
-          <JellyRipple />
-        </ButtonLink>
-      </Magnetic>
       <div className="mt-auto space-y-3">
         {!install.installed && (
           <button

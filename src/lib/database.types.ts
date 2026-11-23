@@ -161,6 +161,7 @@ export type Database = {
       }
       chats: {
         Row: {
+          closed_at: string | null
           created_at: string
           icebreaker: string | null
           id: string
@@ -170,6 +171,7 @@ export type Database = {
           status: string
         }
         Insert: {
+          closed_at?: string | null
           created_at?: string
           icebreaker?: string | null
           id?: string
@@ -179,6 +181,7 @@ export type Database = {
           status?: string
         }
         Update: {
+          closed_at?: string | null
           created_at?: string
           icebreaker?: string | null
           id?: string
@@ -1271,6 +1274,10 @@ export type Database = {
       respond_moshi: {
         Args: { accept: boolean; p_chat: string }
         Returns: undefined
+      }
+      close_chat: {
+        Args: { p_chat: string }
+        Returns: string
       }
       send_moshi: {
         Args: { opener: string; target: string }

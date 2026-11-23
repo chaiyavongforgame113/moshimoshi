@@ -33,7 +33,6 @@ import { toComparePreview, type LiveChat } from './live/map'
 import { isSample, isServerId } from './live/sample'
 import { ensurePerson, ensureRoomHistory, ensureSession, retrySession, watchEvent, watchRoom } from './live/sync'
 import { isStaff, watchHeartbeat, watchLeave, watchViewers, waveCardPreview } from './live/writes'
-import { DEMO_CHATS } from './mock'
 import { pairQuestion } from './pairQuestions'
 import { sameTag } from './tags'
 import { WATCH_LIMITS, watchReleaseAt } from './watch'
@@ -319,26 +318,6 @@ export function useChats(): Chat[] {
   const chats = useMoshi((s) => s.chats)
   const blocked = useBlocked()
   return useMemo(() => (blocked.length ? chats.filter((c) => !blocked.includes(c.withUserId)) : chats), [chats, blocked])
-}
-
-/** demo mode's ready-made lines: they were "said" before this visitor ever arrived */
-const SEEDED_LINES = new Set(DEMO_CHATS.flatMap((c) => c.messages.map((m) => m.id)))
-
-/**
- * Have I said hi to someone myself? A hello I sent, or a line I wrote in any chat. Someone
- * saying hi to me doesn't count until I answer, and demo mode's seeded chats never do.
- */
-export function useSaidHi(): boolean {
-  const chats = useChats()
-  const myId = useMyId()
-  const sentHello = useMoshi((s) => s.sentMoshi.length > 0)
-  return useMemo(() => {
-    if (sentHello) return true
-    const mine = (id: string | undefined) => id === myId || id === 'me'
-    return chats.some(
-      (c) => mine(c.requestedBy) || c.messages.some((m) => mine(m.userId) && m.kind !== 'system' && !SEEDED_LINES.has(m.id)),
-    )
-  }, [chats, myId, sentHello])
 }
 
 /** A chat by id; a temporary id from a moshi still being sent resolves to the real chat. */
@@ -700,6 +679,7 @@ export interface IntroLists {
 /** Intro requests, with expiry applied as of now (people I blocked left out). */
 export function useIntroRequests(): IntroLists {
   const intros = useMoshi((s) => s.intros)
+  const chats = useMoshi((s) => s.chats)
   const blocked = useBlocked()
   const people = useCatalog((s) => s.people)
   const mode = useDataMode()
@@ -710,14 +690,15 @@ export function useIntroRequests(): IntroLists {
   }, [mode, intros])
   return useMemo(() => {
     const visible = new Set(people.map((u) => u.id))
+    const closed = new Set(chats.filter((c) => c.closedAt).map((c) => c.withUserId))
     const list = intros
       .map((i) => (i.status === 'pending' && Date.parse(i.expiresAt) <= now ? { ...i, status: 'expired' as const } : i))
-      .filter((i) => !blocked.includes(i.withUserId))
+      .filter((i) => !blocked.includes(i.withUserId) && !closed.has(i.withUserId))
     return {
       incoming: list.filter((i) => i.direction === 'incoming' && i.status === 'pending' && visible.has(i.withUserId)),
       outgoing: list.filter((i) => i.direction === 'outgoing'),
     }
-  }, [intros, blocked, people, now])
+  }, [intros, chats, blocked, people, now])
 }
 
 /**

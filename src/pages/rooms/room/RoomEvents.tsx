@@ -1,4 +1,4 @@
-// Top of a room's chat: the room's event when one is open or starts within a day (pinned as a
+// Room info: the room's event when one is open or starts within a day (pinned as a
 // compact card), and, for the room's hosts and staff only, a quiet "สร้างอีเวนต์".
 import { CalendarPlus } from 'lucide-react'
 import { useState } from 'react'
@@ -37,7 +37,7 @@ export function RoomEventPin({ room }: { room: Room }) {
   )
 
   return (
-    <div className="mb-5">
+    <div className="mt-3">
       {pinned ? (
         <EventCard
           session={pinned}

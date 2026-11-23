@@ -40,32 +40,27 @@ export function MyTags({ onEdit }: { onEdit: () => void }) {
   // starred first, so the first few are the ones I love most
   const ordered = [...loves, ...me.tags.filter((id) => !me.loves.includes(id))].filter((id) => !!tagOf(id))
   return (
-    <Section
-      tone="pink"
-      icon={<Heart size={18} strokeWidth={2.4} />}
-      title={t('เรื่องที่ชอบ', 'My interests')}
-      action={ordered.length > 0 && <EditLink onClick={onEdit} label={t('แก้', 'Edit')} what={t('แก้เรื่องที่ชอบ', 'Edit my interests')} />}
-    >
+    <section className="mt-4 px-1" aria-label={t('เรื่องที่ชอบ', 'My interests')}>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-ink-soft">{t('เรื่องที่ชอบ', 'My interests')}</h2>
+        {ordered.length > 0 && <EditLink onClick={onEdit} label={t('แก้', 'Edit')} what={t('แก้เรื่องที่ชอบ', 'Edit my interests')} />}
+      </div>
       {ordered.length ? (
         <>
           <ShowMore
+            as="div"
             items={ordered}
-            initial={FIRST}
+            initial={8}
             getKey={(id) => id}
-            listClassName="flex flex-wrap gap-2"
-            itemClassName="relative max-w-full"
+            listClassName="flex flex-wrap gap-1.5"
+            itemClassName="max-w-full"
             render={(id) => {
               const tag = tagOf(id)
               if (!tag) return null
               return (
-                <>
-                  <TagChip tag={tag} />
-                  {me.loves.includes(id) && (
-                    <span className="absolute -top-1.5 -right-1 flex size-5 items-center justify-center rounded-full bg-butter ring-2 ring-cream">
-                      <Star size={11} strokeWidth={2.6} className="fill-white" aria-label={t('รักมาก', 'Love it')} />
-                    </span>
-                  )}
-                </>
+                <Chip size="sm" icon={me.loves.includes(id) ? <Star size={12} strokeWidth={2.6} className="fill-butter" aria-label={t('รักมาก', 'Love it')} /> : undefined}>
+                  {tag.label}
+                </Chip>
               )
             }}
           />
@@ -82,7 +77,7 @@ export function MyTags({ onEdit }: { onEdit: () => void }) {
           </Button>
         </Empty>
       )}
-    </Section>
+    </section>
   )
 }
 
@@ -148,7 +143,7 @@ export function MyIntents() {
         title={t('ชวนเล่นของเรา', 'My invites')}
         action={
           intents.length > 0 && intents.length < 3 ? (
-            <Link to="/app/post" data-after-delete className={zoneAction}>
+            <Link to="/app/people/invites/compose" data-after-delete className={zoneAction}>
               <Plus size={15} strokeWidth={2.6} aria-hidden /> {t('ชวนเพิ่ม', 'New invite')}
             </Link>
           ) : undefined
@@ -161,7 +156,7 @@ export function MyIntents() {
               'No invites yet. Invite people to do something together, so anyone into the same thing can tap "Me too"',
             )}
           >
-            <ButtonLink variant="secondary" to="/app/post" data-after-delete icon={<Plus size={18} strokeWidth={2.6} aria-hidden />}>
+            <ButtonLink variant="secondary" to="/app/people/invites/compose" data-after-delete icon={<Plus size={18} strokeWidth={2.6} aria-hidden />}>
               {t('ชวนเล่น', 'Start an invite')}
             </ButtonLink>
           </Empty>
@@ -224,7 +219,7 @@ function InviteCard({ intent, onRemoved }: { intent: Intent; onRemoved: () => vo
         </div>
         <div className="flex shrink-0 flex-col gap-1.5">
           <Link
-            to={`/app/post?edit=${intent.id}`}
+            to={`/app/people/invites/compose?edit=${intent.id}`}
             aria-label={t(`แก้ไขชวนเล่น "${intent.text}"`, `Edit invite "${intent.text}"`)}
             title={t('แก้ไข', 'Edit')}
             className="inline-flex size-11 items-center justify-center rounded-full bg-cream-3/70 text-ink hover:bg-cream-3"

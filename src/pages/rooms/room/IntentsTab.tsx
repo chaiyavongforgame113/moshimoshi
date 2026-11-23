@@ -36,7 +36,7 @@ export function IntentsTab({ room }: { room: Room }) {
             {t('กด “ฉันด้วย” ให้เขารู้ว่ามีเพื่อนสนใจ แล้วค่อยทักไปคุยต่อ', 'Tap “Me too!” so they know someone’s keen, then say hi')}
           </p>
         </div>
-        <ButtonLink to={`/app/post?room=${room.id}`} icon={<Plus size={16} strokeWidth={2.8} />}>
+        <ButtonLink to={`/app/people/invites/compose?room=${room.id}`} icon={<Plus size={16} strokeWidth={2.8} />}>
           {t('ชวนเล่น', 'Invite to play')}
         </ButtonLink>
       </div>
@@ -66,7 +66,7 @@ export function IntentsTab({ room }: { room: Room }) {
           <p className="mt-1 max-w-xs text-ink-soft">
             {t('เป็นคนแรกเลยไหม บอกเพื่อนๆ ว่าอยากหาใครมาทำอะไรด้วยกัน', "Want to be first? Tell everyone who you'd like to find, and what to do together")}
           </p>
-          <ButtonLink to={`/app/post?room=${room.id}`} className="mt-4" icon={<Plus size={18} strokeWidth={2.8} />}>
+          <ButtonLink to={`/app/people/invites/compose?room=${room.id}`} className="mt-4" icon={<Plus size={18} strokeWidth={2.8} />}>
             {t('ชวนเล่น', 'Invite to play')}
           </ButtonLink>
         </div>

@@ -16,11 +16,6 @@ interface StepActionsProps {
   onNext: () => void
   /** optional screens: with nothing answered yet, the one button is a calm "ข้ามไปก่อน" */
   onSkip?: () => void
-  /**
-   * optional screens: an answer is under way but not complete yet (a story still too short).
-   * The button then explains what's missing, with a small Skip beside it.
-   */
-  started?: boolean
   variant: 'bar' | 'row'
 }
 
@@ -42,7 +37,7 @@ const TONE: Record<Tone, string> = {
  * - optional and untouched → a calm "ข้ามไปก่อน" that becomes "ไปต่อ" the moment something is picked
  * - required and not ready → a calm button saying what's missing; pressing it wiggles and explains
  */
-export function StepActions({ label, icon, ok, need, nudge, onNext, onSkip, started = false, variant }: StepActionsProps) {
+export function StepActions({ label, icon, ok, need, nudge, onNext, onSkip, variant }: StepActionsProps) {
   const [scope, animate] = useAnimate<HTMLDivElement>()
   const reduce = useReducedMotion()
 
@@ -51,24 +46,10 @@ export function StepActions({ label, icon, ok, need, nudge, onNext, onSkip, star
   }, [nudge, reduce, animate, scope])
 
   const bar = variant === 'bar'
-  const skipOnly = !ok && !!onSkip && !started
+  const skipOnly = !ok && !!onSkip
   const tone: Tone = ok ? 'primary' : skipOnly ? 'skip' : 'calm'
   const text = ok ? label : skipOnly ? t('ข้ามไปก่อน', 'Skip for now') : bar ? (need ?? label) : label
   const trailing = ok ? icon : skipOnly ? <ChevronRight size={20} strokeWidth={2.4} className="text-ink-soft" aria-hidden /> : null
-
-  // a small Skip only while a started answer isn't complete yet (otherwise the main button is Skip)
-  const skip = onSkip && started && !ok && (
-    <motion.button
-      type="button"
-      whileTap={reduce ? undefined : { scale: 0.94, y: 1 }}
-      transition={spring.bouncy}
-      onPointerDown={leaveField}
-      onClick={onSkip}
-      className="min-h-14 max-w-[6.5rem] shrink-0 rounded-full px-3 text-center font-display text-sm leading-tight font-semibold text-ink-soft transition-colors hover:bg-ink/5 hover:text-ink"
-    >
-      {t('ข้ามไปก่อน', 'Skip for now')}
-    </motion.button>
-  )
 
   const main = (
     <div ref={scope} className={bar ? 'min-w-0 flex-1' : 'shrink-0'}>
@@ -110,7 +91,6 @@ export function StepActions({ label, icon, ok, need, nudge, onNext, onSkip, star
       <div className="safe-bottom pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3">
         <div className="pointer-events-none absolute inset-x-0 -top-8 bottom-0 bg-linear-to-t from-cream via-cream/80 to-transparent" aria-hidden />
         <div className="glass pointer-events-auto relative mx-auto flex max-w-xl items-center gap-1.5 rounded-[1.9rem] p-2">
-          {skip}
           {main}
           {live}
         </div>
@@ -146,10 +126,7 @@ export function StepActions({ label, icon, ok, need, nudge, onNext, onSkip, star
           )}
         </motion.p>
       </AnimatePresence>
-      <div className="flex shrink-0 items-center gap-1">
-        {skip}
-        {main}
-      </div>
+      {main}
       {live}
     </div>
   )

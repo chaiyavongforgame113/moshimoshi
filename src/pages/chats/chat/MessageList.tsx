@@ -57,7 +57,7 @@ interface ListProps {
   them: User
   meColor: MochiColor
   sames: string[]
-  onSame: (messageId: string) => void
+  onSame?: (messageId: string) => void
   /** ids that were already there when the chat opened (no bounce-in for those) */
   initialIds: Set<string>
   /** demo messages say 'me', live rows carry my user id */
@@ -98,13 +98,13 @@ export function MessageList({ messages, them, meColor, sames, onSame, initialIds
                   isNew={!initialIds.has(m.id)}
                   order={index++}
                   same={sames.includes(m.id)}
-                  onSame={() => onSame(m.id)}
+                  onSame={onSame && (() => onSame(m.id))}
                   onOpenImage={() => onOpenImage?.(m)}
                 />
               ))}
               <div className={`flex items-center gap-2 px-1 text-[11px] text-ink-soft ${g.mine ? 'flex-row-reverse' : ''}`}>
                 <time>{known(last.at)}</time>
-                {!g.mine && (
+                {!g.mine && onSame && (
                   <SameButton active={sames.includes(last.id)} onToggle={() => onSame(last.id)} describedBy={`msg-${last.id}`} className="-my-2" />
                 )}
               </div>
@@ -186,7 +186,7 @@ interface BubbleProps {
   isNew: boolean
   order: number
   same: boolean
-  onSame: () => void
+  onSame?: () => void
   onOpenImage: () => void
 }
 
@@ -205,7 +205,7 @@ function Bubble({ msg, mine, first, last, color, them, isNew, order, same, onSam
     : `${first ? '' : 'rounded-tl-lg'} ${last ? 'rounded-bl-md' : 'rounded-bl-lg'}`
 
   const startPress = () => {
-    if (mine || photo) return
+    if (mine || photo || !onSame) return
     timer.current = window.setTimeout(() => {
       navigator.vibrate?.(14)
       onSame()
@@ -224,7 +224,7 @@ function Bubble({ msg, mine, first, last, color, them, isNew, order, same, onSam
       onPointerLeave={cancelPress}
       onPointerCancel={cancelPress}
       onDoubleClick={mine || photo ? undefined : onSame}
-      onContextMenu={mine ? undefined : (e) => e.preventDefault()}
+      onContextMenu={mine || !onSame ? undefined : (e) => e.preventDefault()}
       style={{
         transformOrigin: mine ? 'bottom right' : 'bottom left',
         background: mine ? `linear-gradient(140deg, ${p.base}, ${p.shade})` : undefined,

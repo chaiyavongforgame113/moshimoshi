@@ -76,7 +76,7 @@ export function TopMatches({ skip, inviteAbove = false }: { skip?: string; invit
               {missing.item.cta(missing.left)}
             </ButtonLink>
           ) : inviteAbove ? (
-            <ButtonLink to="/app/post" variant="secondary" icon={<Plus size={18} strokeWidth={2.8} aria-hidden />} className="w-full sm:w-auto">
+            <ButtonLink to="/app/people/invites/compose" variant="secondary" icon={<Plus size={18} strokeWidth={2.8} aria-hidden />} className="w-full sm:w-auto">
               {t('ชวนเล่น', 'Post an invite')}
             </ButtonLink>
           ) : (

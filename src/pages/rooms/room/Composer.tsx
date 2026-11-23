@@ -1,9 +1,8 @@
-import { animate, motion, useReducedMotion } from 'motion/react'
+import { animate, useReducedMotion } from 'motion/react'
 import { SendHorizontal } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type Ref } from 'react'
 import { Avatar, IconButton } from '@/components/ui'
 import { t } from '@/lib/i18n'
-import { spring } from '@/lib/motion'
 import type { Room } from '@/lib/types'
 import { Ideas } from '@/pages/chats/chat/Ideas'
 import { JoinButton } from '../bits'
@@ -15,45 +14,14 @@ export interface Draft {
   to?: string
 }
 
-/**
- * The room chat's dock, sticky at the bottom of the chat section: on phones it
- * rides just above the floating bottom nav, on desktop at the bottom of the
- * column. Being sticky (not fixed) it only shows while the chat is on screen,
- * so it never covers the room header or the tabs. It holds the composer, or
- * the join panel for someone who hasn't joined the room yet (an event's chat
- * puts its read-only note here once the event ends). Goes straight inside
- * the chat's section.
- */
+/** Keeps the composer or join controls above the bottom navigation. */
 export function ChatDock({ desktop, card, className = '', children }: { desktop: boolean; card?: Ref<HTMLDivElement>; className?: string; children: ReactNode }) {
-  const dock = useRef<HTMLDivElement>(null)
-  // phones: while the chat is still below the fold the dock can't reach its spot and would sit under
-  // the bottom nav, so it fades in once the chat has scrolled up far enough
-  const [clear, setClear] = useState(desktop)
-  useEffect(() => {
-    const section = dock.current?.parentElement
-    if (desktop || !section) {
-      setClear(true)
-      return
-    }
-    const io = new IntersectionObserver(([e]) => setClear(!!e?.isIntersecting), { rootMargin: '0px 0px -240px 0px' })
-    io.observe(section)
-    return () => io.disconnect()
-  }, [desktop])
-
   return (
-    <motion.div
-      ref={dock}
-      initial={{ opacity: 0, y: 24 }}
-      animate={clear ? { opacity: 1, y: 0 } : { opacity: 0, y: 24 }}
-      transition={spring.soft}
-      className={`${desktop ? 'sticky bottom-5 z-20 mt-5' : 'sticky bottom-[calc(6.75rem+env(safe-area-inset-bottom))] z-30 mt-4'} ${clear ? '' : 'pointer-events-none'}`}
-    >
-      {/* phones: messages fade out behind the dock (and in the gap above the bottom nav) instead of running into it */}
-      {!desktop && <div aria-hidden className="pointer-events-none absolute -inset-x-4 -top-6 -bottom-[calc(7rem+env(safe-area-inset-bottom))] bg-linear-to-t from-cream from-75% via-cream/75 to-transparent" />}
+    <div className={`sticky ${desktop ? 'bottom-5 z-20 mt-5' : 'bottom-[calc(7.5rem+env(safe-area-inset-bottom))] z-30 mt-4'}`}>
       <div ref={card} className={`glass relative mx-auto max-w-md overflow-hidden rounded-[1.9rem] bg-white/92 shadow-[var(--shadow-lift)] md:max-w-2xl ${className}`}>
         {children}
       </div>
-    </motion.div>
+    </div>
   )
 }
 

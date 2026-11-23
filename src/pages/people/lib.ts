@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { known, L, t, texts } from '@/lib/i18n'
 import { useMoshi } from '@/lib/store'
-import type { IntentTemplate, IntentWhen, MatchResult, MochiColor, User } from '@/lib/types'
+import type { IntentTemplate, IntentWhen, MochiColor, User } from '@/lib/types'
 
 export const COLOR_NAME: Readonly<Record<MochiColor, string>> = texts({
   peach: L('พีช', 'peach'),
@@ -89,12 +89,4 @@ export function toOpener(icebreaker: string, name: string): { text: string; from
   const inviteEn = icebreaker.match(new RegExp(`^Invite (?:${safeName} )?to (.+?)\\??$`))
   if (inviteEn) return { text: `Join me for ${inviteEn[1].trim()}?`, from: t('ชวนทำอะไรด้วยกัน', 'Invite them to do something') }
   return { text: icebreaker, from: sameLikes() }
-}
-
-/** The one line we suggest for a first hello: their best icebreaker, ready to send as-is. */
-export function suggestedOpener(match: MatchResult, user: User): string {
-  const first = match.icebreakers[0]
-  return first
-    ? toOpener(first, user.name).text
-    : t('หวัดดี~ เห็นโปรไฟล์แล้วรู้สึกว่าน่าจะคุยกันสนุก ขอทักมาทำความรู้จักนะ', "Hi~ Saw your profile and figured we'd have fun chatting. Just saying hello!")
 }

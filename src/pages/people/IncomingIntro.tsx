@@ -57,7 +57,7 @@ export function IntroAnswer({ intro, name, primary = true, className = '' }: { i
   )
 }
 
-/** Chats page, top zone: "โมชิอยากแนะนำ <A> ให้รู้จัก" with A's mochi, Mochi's reasons and the two answers. */
+/** A pending introduction, with the person's profile, match reasons, and the two answers. */
 export function IncomingIntroCard({ intro, primary = true }: { intro: IntroRequest; primary?: boolean }) {
   const reduce = useReducedMotion()
   const u = usePerson(intro.withUserId)

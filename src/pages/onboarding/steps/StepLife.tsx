@@ -9,7 +9,7 @@ const FIRST = ['นักศึกษา', 'เริ่มงานแรก', 
 /** The list in showing order: the common ones, then the rest as listed. */
 const ORDERED = [...FIRST, ...LIFE_STAGES.map((o) => o.value).filter((v) => !FIRST.includes(v))]
 
-/** 7 · ช่วงชีวิต: where life is at right now, up to three (skippable). "อื่นๆ" says it their own way. */
+/** 7 · ช่วงชีวิต: where life is at right now (skippable). "อื่นๆ" says it their own way. */
 export function StepLife({ draft, update }: StepProps) {
   const toggle = (v: string) => {
     if (draft.lifeStages.includes(v)) return update((d) => ({ lifeStages: d.lifeStages.filter((x) => x !== v) }))
